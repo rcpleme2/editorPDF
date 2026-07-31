@@ -25,6 +25,12 @@ interface EditorState {
   fontSize: number
   clipboard: Annotation | null
   past: PageState[][]
+  // Bumped on every explicit "jump to this page" request (e.g. a sidebar
+  // click), separately from currentPageId so the continuous scroll view can
+  // tell an intentional navigation apart from currentPageId merely following
+  // the user's own scrolling — the latter must not trigger a re-scroll.
+  navigateToken: number
+  navigateTargetId: string | null
 
   addSource: (entry: SourceEntry, pages: PageState[]) => void
   reset: () => void
@@ -32,6 +38,8 @@ interface EditorState {
   commitHistory: () => void
   setTool: (tool: ToolId) => void
   setCurrentPage: (id: string) => void
+  setActivePage: (id: string) => void
+  goToPage: (id: string) => void
   setSelectedAnnotation: (id: string | null) => void
   setStrokeColor: (c: RGB) => void
   setFontSize: (n: number) => void
@@ -60,6 +68,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   fontSize: 16,
   clipboard: null,
   past: [],
+  navigateToken: 0,
+  navigateTargetId: null,
 
   addSource: (entry, newPages) =>
     set((s) => {
@@ -90,6 +100,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setTool: (tool) => set({ tool, selectedAnnotationId: null }),
   setCurrentPage: (id) => set({ currentPageId: id, selectedAnnotationId: null }),
+  // Used when the scroll position (or a click within a page) reveals which
+  // page is "active" — unlike setCurrentPage, it doesn't clear the current
+  // selection/tool, since that would be surprising during passive scrolling.
+  setActivePage: (id) =>
+    set((s) => (s.currentPageId === id ? s : { currentPageId: id })),
+  // Explicit "jump to this page" (sidebar click): updates the active page
+  // and asks the continuous scroll view to scroll it into view.
+  goToPage: (id) =>
+    set((s) => ({
+      currentPageId: id,
+      selectedAnnotationId: null,
+      navigateTargetId: id,
+      navigateToken: s.navigateToken + 1,
+    })),
   setSelectedAnnotation: (id) => set({ selectedAnnotationId: id }),
   setStrokeColor: (c) => set({ strokeColor: c }),
   setFontSize: (n) => set({ fontSize: n }),

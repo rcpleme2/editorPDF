@@ -1,45 +1,29 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useEditorStore } from '../state/useEditorStore'
-import { getPageTextItems, getPageViewport, renderPageToDataUrl, type PdfViewport } from '../lib/pdfRender'
-import { pdfBoxToScreen, screenBoxToPdf, screenPointToPdf } from '../lib/geometry'
-import { AnnotationView } from './AnnotationView'
-import type { Annotation, TextItem } from '../types'
+import { PageView } from './PageView'
 
-const MIN_DRAG = 4
 const MIN_ZOOM = 0.25
 const MAX_ZOOM = 3
 const ZOOM_STEP = 0.1
-
-function newId() {
-  return crypto.randomUUID()
-}
 
 export function PageCanvas() {
   const pages = useEditorStore((s) => s.pages)
   const sources = useEditorStore((s) => s.sources)
   const currentPageId = useEditorStore((s) => s.currentPageId)
+  const navigateToken = useEditorStore((s) => s.navigateToken)
+  const navigateTargetId = useEditorStore((s) => s.navigateTargetId)
   const tool = useEditorStore((s) => s.tool)
   const strokeColor = useEditorStore((s) => s.strokeColor)
   const fontSize = useEditorStore((s) => s.fontSize)
-  const addAnnotation = useEditorStore((s) => s.addAnnotation)
-  const setSelectedAnnotation = useEditorStore((s) => s.setSelectedAnnotation)
-  const setCropBox = useEditorStore((s) => s.setCropBox)
-  const setTool = useEditorStore((s) => s.setTool)
+  const setActivePage = useEditorStore((s) => s.setActivePage)
 
-  const page = pages.find((p) => p.id === currentPageId) ?? null
-  const wrapperRef = useRef<HTMLDivElement>(null)
+  const outerRef = useRef<HTMLDivElement>(null)
+  const pageRefs = useRef(new Map<string, HTMLDivElement>())
   const [containerWidth, setContainerWidth] = useState(800)
   const [zoom, setZoom] = useState(1)
-  const [viewport, setViewport] = useState<PdfViewport | null>(null)
-  const [bgUrl, setBgUrl] = useState<string | null>(null)
-  const [textItems, setTextItems] = useState<TextItem[]>([])
-  const [draft, setDraft] = useState<{ type: string; left: number; top: number; width: number; height: number } | null>(null)
-  const [freehandPoints, setFreehandPoints] = useState<{ x: number; y: number }[] | null>(null)
-  const [cropRect, setCropRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null)
-  const drawingRef = useRef<{ startX: number; startY: number } | null>(null)
 
   useEffect(() => {
-    const el = wrapperRef.current
+    const el = outerRef.current
     if (!el) return
     const obs = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width
@@ -49,14 +33,39 @@ export function PageCanvas() {
     return () => obs.disconnect()
   }, [])
 
-  const entry = page ? sources[page.sourceDocIndex] : null
+  // Track which page is most visible in the scroll container and mark it
+  // "active" (used for the crop hint bar and to keep the sidebar in sync),
+  // without disturbing tool/selection state the way an explicit navigation would.
+  useEffect(() => {
+    const scrollRoot = outerRef.current?.closest('.app-main')
+    if (!scrollRoot) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        let best: { id: string; ratio: number } | null = null
+        for (const entry of entries) {
+          const id = (entry.target as HTMLElement).dataset.pageId
+          if (!id) continue
+          if (entry.isIntersecting && (!best || entry.intersectionRatio > best.ratio)) {
+            best = { id, ratio: entry.intersectionRatio }
+          }
+        }
+        if (best) setActivePage(best.id)
+      },
+      { root: scrollRoot, threshold: [0.15, 0.35, 0.55, 0.75] },
+    )
+    for (const el of pageRefs.current.values()) observer.observe(el)
+    return () => observer.disconnect()
+  }, [pages, setActivePage])
 
-  const scale = useMemo(() => {
-    if (!page) return 1
-    const displayW = page.rotation % 180 === 0 ? page.width : page.height
-    const fitScale = containerWidth / displayW
-    return Math.min(Math.max(fitScale * zoom, 0.1), 6)
-  }, [page, containerWidth, zoom])
+  // Explicit "jump to this page" request (sidebar click) — scroll it into
+  // view. Driven by navigateToken (not currentPageId) so that currentPageId
+  // simply following the user's own scroll never triggers a re-scroll.
+  useEffect(() => {
+    if (navigateToken === 0 || !navigateTargetId) return
+    const el = pageRefs.current.get(navigateTargetId)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navigateToken])
 
   function zoomIn() {
     setZoom((z) => Math.min(MAX_ZOOM, Math.round((z + ZOOM_STEP) * 100) / 100))
@@ -68,30 +77,7 @@ export function PageCanvas() {
     setZoom(1)
   }
 
-  useEffect(() => {
-    let cancelled = false
-    if (!page || !entry) {
-      setViewport(null)
-      setBgUrl(null)
-      return
-    }
-    setCropRect(null)
-    Promise.all([
-      getPageViewport(entry.renderDoc, page.sourcePageIndex, scale, page.rotation),
-      renderPageToDataUrl(entry.renderDoc, page.sourcePageIndex, scale, page.rotation),
-      getPageTextItems(entry.renderDoc, page.sourcePageIndex),
-    ]).then(([vp, img, items]) => {
-      if (cancelled) return
-      setViewport(vp)
-      setBgUrl(img.dataUrl)
-      setTextItems(items)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [page, entry, scale])
-
-  if (!page || !entry) {
+  if (pages.length === 0) {
     return (
       <div className="page-canvas-empty">
         <p>Selecione ou carregue um PDF para começar a editar.</p>
@@ -99,246 +85,8 @@ export function PageCanvas() {
     )
   }
 
-  function findTextItemAt(pdfX: number, pdfY: number): TextItem | null {
-    for (const item of textItems) {
-      if (pdfX >= item.x && pdfX <= item.x + item.width && pdfY >= item.y && pdfY <= item.y + item.height) {
-        return item
-      }
-    }
-    return null
-  }
-
-  function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    if (!viewport || !page) return
-    const rect = e.currentTarget.getBoundingClientRect()
-    const localX = e.clientX - rect.left
-    const localY = e.clientY - rect.top
-
-    if (tool === 'select') {
-      setSelectedAnnotation(null)
-      return
-    }
-
-    if (tool === 'text') {
-      const pdfPoint = screenPointToPdf(viewport, localX, localY)
-      const hit = findTextItemAt(pdfPoint.x, pdfPoint.y)
-      if (hit) {
-        addAnnotation(page.id, {
-          id: newId(),
-          type: 'text',
-          pageIndex: 0,
-          x: hit.x,
-          y: hit.y,
-          width: hit.width + 4,
-          height: hit.height * 1.2,
-          fontSize: hit.fontSize,
-          text: hit.text,
-          isReplacement: true,
-          bold: false,
-          italic: false,
-          color: { r: 0, g: 0, b: 0 },
-        } as Annotation)
-      } else {
-        addAnnotation(page.id, {
-          id: newId(),
-          type: 'text',
-          pageIndex: 0,
-          x: pdfPoint.x,
-          y: pdfPoint.y - fontSize * 1.2,
-          width: 180,
-          height: fontSize * 1.4,
-          fontSize,
-          text: '',
-          isReplacement: false,
-          bold: false,
-          italic: false,
-          color: strokeColor,
-        } as Annotation)
-      }
-      setTool('select')
-      return
-    }
-
-    if (tool === 'note') {
-      const pdfPoint = screenPointToPdf(viewport, localX, localY)
-      addAnnotation(page.id, {
-        id: newId(),
-        type: 'note',
-        pageIndex: 0,
-        x: pdfPoint.x,
-        y: pdfPoint.y - 60,
-        width: 140,
-        height: 60,
-        text: '',
-        open: true,
-        color: strokeColor,
-      } as Annotation)
-      setTool('select')
-      return
-    }
-
-    if (tool === 'draw') {
-      drawingRef.current = { startX: localX, startY: localY }
-      const p0 = screenPointToPdf(viewport, localX, localY)
-      setFreehandPoints([p0])
-      window.addEventListener('pointermove', onFreehandMove)
-      window.addEventListener('pointerup', onFreehandUp)
-      return
-    }
-
-    if (tool === 'crop') {
-      drawingRef.current = { startX: localX, startY: localY }
-      setCropRect({ left: localX, top: localY, width: 0, height: 0 })
-      window.addEventListener('pointermove', onCropMove)
-      window.addEventListener('pointerup', onCropUp)
-      return
-    }
-
-    // highlight, rect, circle, line, arrow: drag to create
-    drawingRef.current = { startX: localX, startY: localY }
-    setDraft({ type: tool, left: localX, top: localY, width: 0, height: 0 })
-    window.addEventListener('pointermove', onDraftMove)
-    window.addEventListener('pointerup', onDraftUp)
-
-    function onFreehandMove(ev: PointerEvent) {
-      const x = ev.clientX - rect.left
-      const y = ev.clientY - rect.top
-      const p = screenPointToPdf(viewport!, x, y)
-      setFreehandPoints((pts) => (pts ? [...pts, p] : [p]))
-    }
-    function onFreehandUp() {
-      window.removeEventListener('pointermove', onFreehandMove)
-      window.removeEventListener('pointerup', onFreehandUp)
-      setFreehandPoints((pts) => {
-        if (pts && pts.length > 1 && page) {
-          const xs = pts.map((p) => p.x)
-          const ys = pts.map((p) => p.y)
-          addAnnotation(page.id, {
-            id: newId(),
-            type: 'freehand',
-            pageIndex: 0,
-            x: Math.min(...xs),
-            y: Math.min(...ys),
-            width: Math.max(...xs) - Math.min(...xs),
-            height: Math.max(...ys) - Math.min(...ys),
-            points: pts,
-            strokeWidth: 2,
-            color: strokeColor,
-          } as Annotation)
-        }
-        return null
-      })
-    }
-
-    function onCropMove(ev: PointerEvent) {
-      const x = ev.clientX - rect.left
-      const y = ev.clientY - rect.top
-      const start = drawingRef.current!
-      setCropRect({
-        left: Math.min(start.startX, x),
-        top: Math.min(start.startY, y),
-        width: Math.abs(x - start.startX),
-        height: Math.abs(y - start.startY),
-      })
-    }
-    function onCropUp() {
-      window.removeEventListener('pointermove', onCropMove)
-      window.removeEventListener('pointerup', onCropUp)
-    }
-
-    function onDraftMove(ev: PointerEvent) {
-      const x = ev.clientX - rect.left
-      const y = ev.clientY - rect.top
-      const start = drawingRef.current!
-      setDraft({
-        type: tool,
-        left: Math.min(start.startX, x),
-        top: Math.min(start.startY, y),
-        width: Math.abs(x - start.startX),
-        height: Math.abs(y - start.startY),
-      })
-    }
-    function onDraftUp(ev: PointerEvent) {
-      window.removeEventListener('pointermove', onDraftMove)
-      window.removeEventListener('pointerup', onDraftUp)
-      const x = ev.clientX - rect.left
-      const y = ev.clientY - rect.top
-      const start = drawingRef.current!
-      const screenBox = {
-        left: Math.min(start.startX, x),
-        top: Math.min(start.startY, y),
-        width: Math.abs(x - start.startX),
-        height: Math.abs(y - start.startY),
-      }
-      setDraft(null)
-      if (screenBox.width < MIN_DRAG && screenBox.height < MIN_DRAG) return
-      if (!page) return
-      if (tool === 'line' || tool === 'arrow') {
-        const p1 = screenPointToPdf(viewport!, start.startX, start.startY)
-        const p2 = screenPointToPdf(viewport!, x, y)
-        addAnnotation(page.id, {
-          id: newId(),
-          type: tool,
-          pageIndex: 0,
-          x: p1.x,
-          y: p1.y,
-          x2: p2.x,
-          y2: p2.y,
-          width: 0,
-          height: 0,
-          strokeWidth: 2,
-          color: strokeColor,
-        } as Annotation)
-        return
-      }
-      const pdfBox = screenBoxToPdf(viewport!, screenBox.left, screenBox.top, screenBox.width, screenBox.height)
-      if (tool === 'highlight') {
-        addAnnotation(page.id, {
-          id: newId(),
-          type: 'highlight',
-          pageIndex: 0,
-          ...pdfBox,
-          opacity: 0.4,
-          color: { r: 255, g: 230, b: 0 },
-        } as Annotation)
-      } else if (tool === 'rect' || tool === 'circle') {
-        addAnnotation(page.id, {
-          id: newId(),
-          type: tool,
-          pageIndex: 0,
-          ...pdfBox,
-          strokeWidth: 2,
-          fill: false,
-          color: strokeColor,
-        } as Annotation)
-      }
-    }
-  }
-
-  function applyCrop() {
-    if (!cropRect || !viewport || !page) return
-    const pdfBox = screenBoxToPdf(viewport, cropRect.left, cropRect.top, cropRect.width, cropRect.height)
-    setCropBox(page.id, pdfBox)
-    setCropRect(null)
-    setTool('select')
-  }
-  function cancelCrop() {
-    setCropRect(null)
-    setTool('select')
-  }
-  function removeCrop() {
-    if (!page) return
-    setCropBox(page.id, null)
-  }
-
-  const showFullPage = tool === 'crop'
-  const cropScreen =
-    viewport && page.cropBox && !showFullPage
-      ? pdfBoxToScreen(viewport, page.cropBox.x, page.cropBox.y, page.cropBox.width, page.cropBox.height)
-      : null
-
   return (
-    <div className="page-canvas-outer" ref={wrapperRef}>
+    <div className="page-canvas-outer" ref={outerRef}>
       <div className="zoom-controls">
         <button title="Diminuir zoom" onClick={zoomOut} disabled={zoom <= MIN_ZOOM}>−</button>
         <button title="Ajustar à largura" className="zoom-percent" onClick={resetZoom}>
@@ -346,80 +94,35 @@ export function PageCanvas() {
         </button>
         <button title="Aumentar zoom" onClick={zoomIn} disabled={zoom >= MAX_ZOOM}>+</button>
       </div>
-      <div className="page-canvas-wrapper">
-      {tool === 'crop' && (
-        <div className="crop-hint-bar">
-          <span>Arraste para selecionar a área de corte.</span>
-          {cropRect && (
-            <>
-              <button onClick={applyCrop}>Aplicar corte</button>
-              <button onClick={cancelCrop}>Cancelar</button>
-            </>
-          )}
-          {page.cropBox && !cropRect && <button onClick={removeCrop}>Remover corte atual</button>}
-        </div>
-      )}
-      <div
-        className="page-canvas-clip"
-        style={
-          viewport
-            ? { width: cropScreen ? cropScreen.width : viewport.width, height: cropScreen ? cropScreen.height : viewport.height }
-            : undefined
-        }
-      >
-      <div
-        id="pdf-canvas-surface"
-        className="page-canvas-surface"
-        style={
-          viewport
-            ? {
-                width: viewport.width,
-                height: viewport.height,
-                left: cropScreen ? -cropScreen.left : 0,
-                top: cropScreen ? -cropScreen.top : 0,
-              }
-            : undefined
-        }
-        onPointerDown={handlePointerDown}
-      >
-        {bgUrl && <img src={bgUrl} className="page-canvas-bg" alt="Página" draggable={false} />}
-        <svg width="0" height="0">
-          <defs>
-            <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
-              <path d="M0,0 L8,4 L0,8 Z" fill={`rgb(${strokeColor.r},${strokeColor.g},${strokeColor.b})`} />
-            </marker>
-          </defs>
-        </svg>
-        {viewport &&
-          page.annotations.map((ann) => (
-            <AnnotationView key={ann.id} ann={ann} pageId={page.id} viewport={viewport} interactive={tool === 'select'} />
-          ))}
-        {draft && (
-          <div
-            className={`draft-box draft-${draft.type}`}
-            style={{ left: draft.left, top: draft.top, width: draft.width, height: draft.height }}
-          />
-        )}
-        {freehandPoints && viewport && (
-          <svg className="freehand-preview" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-            <polyline
-              points={freehandPoints
-                .map((p) => {
-                  const [sx, sy] = viewport.convertToViewportPoint(p.x, p.y)
-                  return `${sx},${sy}`
-                })
-                .join(' ')}
-              fill="none"
-              stroke={`rgb(${strokeColor.r},${strokeColor.g},${strokeColor.b})`}
-              strokeWidth={2}
-            />
-          </svg>
-        )}
-        {cropRect && (
-          <div className="crop-overlay" style={{ left: cropRect.left, top: cropRect.top, width: cropRect.width, height: cropRect.height }} />
-        )}
-      </div>
-      </div>
+      <div className="page-canvas-stack">
+        {pages.map((page, i) => {
+          const entry = sources[page.sourceDocIndex]
+          if (!entry) return null
+          return (
+            <div
+              key={page.id}
+              ref={(el) => {
+                if (el) pageRefs.current.set(page.id, el)
+                else pageRefs.current.delete(page.id)
+              }}
+              data-page-id={page.id}
+              className="page-canvas-slot"
+            >
+              <div className="page-number-label">Página {i + 1}</div>
+              <PageView
+                page={page}
+                entry={entry}
+                containerWidth={containerWidth}
+                zoom={zoom}
+                tool={tool}
+                strokeColor={strokeColor}
+                fontSize={fontSize}
+                isActive={currentPageId === page.id}
+                onActivate={() => setActivePage(page.id)}
+              />
+            </div>
+          )
+        })}
       </div>
     </div>
   )

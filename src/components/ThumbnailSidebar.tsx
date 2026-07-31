@@ -24,7 +24,7 @@ function Thumbnail({ page, index }: { page: PageState; index: number }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null)
   const sources = useEditorStore((s) => s.sources)
   const currentPageId = useEditorStore((s) => s.currentPageId)
-  const setCurrentPage = useEditorStore((s) => s.setCurrentPage)
+  const goToPage = useEditorStore((s) => s.goToPage)
   const deletePage = useEditorStore((s) => s.deletePage)
   const duplicatePage = useEditorStore((s) => s.duplicatePage)
   const rotatePage = useEditorStore((s) => s.rotatePage)
@@ -52,7 +52,7 @@ function Thumbnail({ page, index }: { page: PageState; index: number }) {
       ref={setNodeRef}
       style={style}
       className={`thumb ${currentPageId === page.id ? 'active' : ''}`}
-      onClick={() => setCurrentPage(page.id)}
+      onClick={() => goToPage(page.id)}
       {...attributes}
       {...listeners}
     >
