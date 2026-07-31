@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useEditorStore } from '../state/useEditorStore'
-import { exportPdf, splitPdf } from '../lib/pdfEngine'
+import { exportPdf } from '../lib/pdfEngine'
+import { importFileAsPages } from '../lib/importFiles'
 import type { RGB, ToolId } from '../types'
-import JSZip from 'jszip'
 
 const TOOLS: { id: ToolId; label: string; icon: string; hint?: string }[] = [
   { id: 'select', label: 'Selecionar', icon: '⇧' },
@@ -45,7 +45,12 @@ export function Toolbar() {
   const sources = useEditorStore((s) => s.sources)
   const pages = useEditorStore((s) => s.pages)
   const reset = useEditorStore((s) => s.reset)
+  const addSource = useEditorStore((s) => s.addSource)
+  const undo = useEditorStore((s) => s.undo)
+  const canUndo = useEditorStore((s) => s.past.length > 0)
   const [busy, setBusy] = useState<string | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
+  const importInputRef = useRef<HTMLInputElement>(null)
 
   const hasDoc = pages.length > 0
 
@@ -59,21 +64,29 @@ export function Toolbar() {
     }
   }
 
-  async function handleSplit() {
-    setBusy('split')
+  function handleNewDocument() {
+    if (window.confirm('Fechar o documento atual sem baixar? Alterações não salvas serão perdidas.')) {
+      reset()
+    }
+  }
+
+  async function handleImportFiles(files: FileList | null) {
+    if (!files || files.length === 0) return
+    setBusy('import')
+    setImportError(null)
     try {
-      const parts = await splitPdf(sources.map((e) => e.source), pages)
-      const zip = new JSZip()
-      parts.forEach((p) => zip.file(p.name, p.bytes))
-      const blob = await zip.generateAsync({ type: 'blob' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'paginas-separadas.zip'
-      a.click()
-      URL.revokeObjectURL(url)
+      for (const file of Array.from(files)) {
+        const { source, renderDoc, pages: newPages } = await importFileAsPages(
+          file,
+          useEditorStore.getState().sources.length,
+        )
+        addSource({ source, renderDoc }, newPages)
+      }
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : 'Falha ao importar arquivo.')
     } finally {
       setBusy(null)
+      if (importInputRef.current) importInputRef.current.value = ''
     }
   }
 
@@ -136,16 +149,28 @@ export function Toolbar() {
           </div>
 
           <div className="toolbar-group toolbar-actions">
-            <button onClick={handleSplit} disabled={busy !== null}>
-              {busy === 'split' ? 'Dividindo…' : 'Dividir em páginas (.zip)'}
+            <button onClick={undo} disabled={!canUndo} title="Desfazer (Ctrl+Z)">
+              ↺ Desfazer
             </button>
+            <button onClick={() => importInputRef.current?.click()} disabled={busy !== null}>
+              {busy === 'import' ? 'Importando…' : '+ Páginas'}
+            </button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".pdf,application/pdf,.png,.jpg,.jpeg,image/png,image/jpeg,.docx,.xlsx,.xls"
+              multiple
+              hidden
+              onChange={(e) => void handleImportFiles(e.target.files)}
+            />
             <button className="primary" onClick={handleExport} disabled={busy !== null}>
               {busy === 'export' ? 'Exportando…' : 'Baixar PDF'}
             </button>
-            <button className="ghost" onClick={reset}>Novo documento</button>
+            <button className="ghost" onClick={handleNewDocument}>Novo documento</button>
           </div>
         </>
       )}
+      {importError && <p className="dropzone-error toolbar-error">{importError}</p>}
     </header>
   )
 }

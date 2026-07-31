@@ -8,6 +8,13 @@ export interface SourceEntry {
   renderDoc: PdfDocProxy
 }
 
+const MAX_HISTORY = 10
+
+function pushPast(past: PageState[][], snapshot: PageState[]): PageState[][] {
+  const next = [...past, snapshot]
+  return next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next
+}
+
 interface EditorState {
   sources: SourceEntry[]
   pages: PageState[]
@@ -16,14 +23,21 @@ interface EditorState {
   selectedAnnotationId: string | null
   strokeColor: RGB
   fontSize: number
+  clipboard: Annotation | null
+  past: PageState[][]
 
   addSource: (entry: SourceEntry, pages: PageState[]) => void
   reset: () => void
+  undo: () => void
+  commitHistory: () => void
   setTool: (tool: ToolId) => void
   setCurrentPage: (id: string) => void
   setSelectedAnnotation: (id: string | null) => void
   setStrokeColor: (c: RGB) => void
   setFontSize: (n: number) => void
+  copySelectedAnnotation: () => void
+  pasteAnnotation: () => void
+  duplicateSelectedAnnotation: () => void
 
   reorderPages: (fromIndex: number, toIndex: number) => void
   deletePage: (id: string) => void
@@ -44,6 +58,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   selectedAnnotationId: null,
   strokeColor: { r: 229, g: 57, b: 53 },
   fontSize: 16,
+  clipboard: null,
+  past: [],
 
   addSource: (entry, newPages) =>
     set((s) => {
@@ -52,10 +68,23 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         sources: [...s.sources, entry],
         pages,
         currentPageId: s.currentPageId ?? pages[0]?.id ?? null,
+        past: pushPast(s.past, s.pages),
       }
     }),
 
-  reset: () => set({ sources: [], pages: [], currentPageId: null, selectedAnnotationId: null }),
+  reset: () => set({ sources: [], pages: [], currentPageId: null, selectedAnnotationId: null, past: [] }),
+
+  undo: () =>
+    set((s) => {
+      if (s.past.length === 0) return s
+      const previous = s.past[s.past.length - 1]
+      const past = s.past.slice(0, -1)
+      const currentPageId =
+        previous.find((p) => p.id === s.currentPageId)?.id ?? previous[0]?.id ?? null
+      return { pages: previous, past, currentPageId, selectedAnnotationId: null }
+    }),
+
+  commitHistory: () => set((s) => ({ past: pushPast(s.past, s.pages) })),
 
   setTool: (tool) => set({ tool, selectedAnnotationId: null }),
   setCurrentPage: (id) => set({ currentPageId: id, selectedAnnotationId: null }),
@@ -68,7 +97,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const pages = [...s.pages]
       const [moved] = pages.splice(fromIndex, 1)
       pages.splice(toIndex, 0, moved)
-      return { pages }
+      return { pages, past: pushPast(s.past, s.pages) }
     }),
 
   deletePage: (id) =>
@@ -76,7 +105,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const pages = s.pages.filter((p) => p.id !== id)
       const currentPageId =
         s.currentPageId === id ? pages[0]?.id ?? null : s.currentPageId
-      return { pages, currentPageId }
+      return { pages, currentPageId, past: pushPast(s.past, s.pages) }
     }),
 
   duplicatePage: (id) =>
@@ -90,7 +119,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
       const pages = [...s.pages]
       pages.splice(idx + 1, 0, copy)
-      return { pages }
+      return { pages, past: pushPast(s.past, s.pages) }
     }),
 
   rotatePage: (id, delta) =>
@@ -100,11 +129,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           ? { ...p, rotation: (((p.rotation + delta) % 360) + 360) % 360 as PageState['rotation'] }
           : p,
       ),
+      past: pushPast(s.past, s.pages),
     })),
 
   setCropBox: (id, box) =>
     set((s) => ({
       pages: s.pages.map((p) => (p.id === id ? { ...p, cropBox: box } : p)),
+      past: pushPast(s.past, s.pages),
     })),
 
   addAnnotation: (pageId, ann) =>
@@ -113,8 +144,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         p.id === pageId ? { ...p, annotations: [...p.annotations, ann] } : p,
       ),
       selectedAnnotationId: ann.id,
+      past: pushPast(s.past, s.pages),
     })),
 
+  // Note: intentionally does not push history — called continuously during
+  // drag/resize (pointermove) and while typing. Callers snapshot via
+  // commitHistory() once at the start of the interaction instead.
   updateAnnotation: (pageId, annId, patch) =>
     set((s) => ({
       pages: s.pages.map((p) =>
@@ -137,5 +172,45 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           : p,
       ),
       selectedAnnotationId: get().selectedAnnotationId === annId ? null : get().selectedAnnotationId,
+      past: pushPast(s.past, s.pages),
     })),
+
+  copySelectedAnnotation: () => {
+    const s = get()
+    const page = s.pages.find((p) => p.id === s.currentPageId)
+    const ann = page?.annotations.find((a) => a.id === s.selectedAnnotationId)
+    if (ann) set({ clipboard: ann })
+  },
+
+  pasteAnnotation: () => {
+    const s = get()
+    const src = s.clipboard
+    const pageId = s.currentPageId
+    if (!src || !pageId) return
+    const offset = 16
+    const copy: Annotation = {
+      ...src,
+      id: crypto.randomUUID(),
+      x: src.x + offset,
+      y: src.y - offset,
+      ...(src.type === 'line' || src.type === 'arrow'
+        ? { x2: src.x2 + offset, y2: src.y2 - offset }
+        : {}),
+      ...(src.type === 'freehand'
+        ? { points: src.points.map((p) => ({ x: p.x + offset, y: p.y - offset })) }
+        : {}),
+    } as Annotation
+    set((state) => ({
+      pages: state.pages.map((p) =>
+        p.id === pageId ? { ...p, annotations: [...p.annotations, copy] } : p,
+      ),
+      selectedAnnotationId: copy.id,
+      clipboard: copy,
+    }))
+  },
+
+  duplicateSelectedAnnotation: () => {
+    get().copySelectedAnnotation()
+    get().pasteAnnotation()
+  },
 }))

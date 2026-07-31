@@ -221,14 +221,3 @@ export async function exportPdf(sources: LoadedSource[], pages: PageState[]): Pr
   return out.save()
 }
 
-export async function splitPdf(
-  sources: LoadedSource[],
-  pages: PageState[],
-): Promise<{ name: string; bytes: Uint8Array }[]> {
-  const results: { name: string; bytes: Uint8Array }[] = []
-  for (let i = 0; i < pages.length; i++) {
-    const bytes = await exportPdf(sources, [pages[i]])
-    results.push({ name: `pagina-${i + 1}.pdf`, bytes })
-  }
-  return results
-}

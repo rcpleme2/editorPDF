@@ -53,18 +53,30 @@ function Thumbnail({ page, index }: { page: PageState; index: number }) {
       style={style}
       className={`thumb ${currentPageId === page.id ? 'active' : ''}`}
       onClick={() => setCurrentPage(page.id)}
+      {...attributes}
+      {...listeners}
     >
-      <div className="thumb-drag-handle" {...attributes} {...listeners}>
-        ⠿
-      </div>
+      <div className="thumb-drag-handle">⠿</div>
       <div className="thumb-img-wrap">
         {dataUrl ? <img src={dataUrl} alt={`Página ${index + 1}`} /> : <div className="thumb-placeholder" />}
       </div>
       <div className="thumb-label">{index + 1}</div>
       <div className="thumb-actions">
-        <button title="Rotacionar" onClick={(e) => { e.stopPropagation(); rotatePage(page.id, 90) }}>⟳</button>
-        <button title="Duplicar" onClick={(e) => { e.stopPropagation(); duplicatePage(page.id) }}>⧉</button>
-        <button title="Excluir" onClick={(e) => { e.stopPropagation(); deletePage(page.id) }}>✕</button>
+        <button
+          title="Rotacionar"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); rotatePage(page.id, 90) }}
+        >⟳</button>
+        <button
+          title="Duplicar"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); duplicatePage(page.id) }}
+        >⧉</button>
+        <button
+          title="Excluir"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); deletePage(page.id) }}
+        >✕</button>
       </div>
     </div>
   )

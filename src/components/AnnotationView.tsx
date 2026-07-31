@@ -23,6 +23,7 @@ export function AnnotationView({
   const removeAnnotation = useEditorStore((s) => s.removeAnnotation)
   const selectedId = useEditorStore((s) => s.selectedAnnotationId)
   const setSelected = useEditorStore((s) => s.setSelectedAnnotation)
+  const commitHistory = useEditorStore((s) => s.commitHistory)
   const dragRef = useRef<{ startScreenX: number; startScreenY: number; orig: Annotation } | null>(null)
   const [editing, setEditing] = useState(false)
 
@@ -34,6 +35,7 @@ export function AnnotationView({
     ;(e.target as Element).setPointerCapture(e.pointerId)
     dragRef.current = { startScreenX: e.clientX, startScreenY: e.clientY, orig: ann }
     setSelected(ann.id)
+    commitHistory()
 
     const onMove = (ev: PointerEvent) => {
       if (!dragRef.current) return
@@ -147,6 +149,7 @@ export function AnnotationView({
         }}
         onDoubleClick={(e) => {
           e.stopPropagation()
+          commitHistory()
           setEditing(true)
         }}
       >
@@ -197,6 +200,7 @@ export function AnnotationView({
         }}
         onDoubleClick={(e) => {
           e.stopPropagation()
+          commitHistory()
           setEditing(true)
         }}
       >

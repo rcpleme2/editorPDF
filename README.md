@@ -5,10 +5,14 @@ Editor de PDF que roda 100% no navegador — nenhum arquivo é enviado a um serv
 ## Funcionalidades
 
 - **Upload** de um ou mais PDFs (arrastar e soltar ou seleção de arquivo)
-- **Organização de páginas**: reordenar (arrastar miniaturas), excluir, duplicar, rotacionar, mesclar vários PDFs em um, dividir em arquivos separados (.zip)
+- **Importar páginas** de outros PDFs, imagens (PNG/JPG), Word (.docx) ou Excel (.xlsx) — cada arquivo é convertido e anexado como novas páginas ao documento atual
+- **Organização de páginas**: reordenar arrastando a miniatura inteira na barra lateral, excluir, duplicar, rotacionar, mesclar vários PDFs em um
 - **Cortar página** (crop) com seleção visual da área
 - **Texto**: inserir texto novo, ou clicar em um texto existente para cobri-lo e substituí-lo (edição por sobreposição — PDFs não têm parágrafos editáveis como o Word, então essa é a abordagem usada também por editores como Adobe/ILovePDF/SmallPDF)
 - **Anotações**: realce (highlight), desenho livre, retângulo, círculo, linha, seta e notas adesivas
+- **Copiar/colar/duplicar** anotações (Ctrl+C, Ctrl+V, Ctrl+D) e excluir com Delete/Backspace
+- **Desfazer** as últimas 10 alterações (Ctrl+Z ou botão "Desfazer")
+- Confirmação antes de fechar o documento atual sem baixar ("Novo documento")
 - **Exportar** o PDF final editado
 
 ## Rodando localmente
