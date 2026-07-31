@@ -68,7 +68,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         sources: [...s.sources, entry],
         pages,
         currentPageId: s.currentPageId ?? pages[0]?.id ?? null,
-        past: pushPast(s.past, s.pages),
+        // Only record history when importing into an already-open document —
+        // the very first upload shouldn't leave an undo step that empties it.
+        past: s.pages.length > 0 ? pushPast(s.past, s.pages) : s.past,
       }
     }),
 

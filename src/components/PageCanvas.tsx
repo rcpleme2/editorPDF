@@ -6,6 +6,9 @@ import { AnnotationView } from './AnnotationView'
 import type { Annotation, TextItem } from '../types'
 
 const MIN_DRAG = 4
+const MIN_ZOOM = 0.25
+const MAX_ZOOM = 3
+const ZOOM_STEP = 0.1
 
 function newId() {
   return crypto.randomUUID()
@@ -26,6 +29,7 @@ export function PageCanvas() {
   const page = pages.find((p) => p.id === currentPageId) ?? null
   const wrapperRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(800)
+  const [zoom, setZoom] = useState(1)
   const [viewport, setViewport] = useState<PdfViewport | null>(null)
   const [bgUrl, setBgUrl] = useState<string | null>(null)
   const [textItems, setTextItems] = useState<TextItem[]>([])
@@ -50,9 +54,19 @@ export function PageCanvas() {
   const scale = useMemo(() => {
     if (!page) return 1
     const displayW = page.rotation % 180 === 0 ? page.width : page.height
-    const s = containerWidth / displayW
-    return Math.min(Math.max(s, 0.2), 3)
-  }, [page, containerWidth])
+    const fitScale = containerWidth / displayW
+    return Math.min(Math.max(fitScale * zoom, 0.1), 6)
+  }, [page, containerWidth, zoom])
+
+  function zoomIn() {
+    setZoom((z) => Math.min(MAX_ZOOM, Math.round((z + ZOOM_STEP) * 100) / 100))
+  }
+  function zoomOut() {
+    setZoom((z) => Math.max(MIN_ZOOM, Math.round((z - ZOOM_STEP) * 100) / 100))
+  }
+  function resetZoom() {
+    setZoom(1)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -324,7 +338,15 @@ export function PageCanvas() {
       : null
 
   return (
-    <div className="page-canvas-wrapper" ref={wrapperRef}>
+    <div className="page-canvas-outer" ref={wrapperRef}>
+      <div className="zoom-controls">
+        <button title="Diminuir zoom" onClick={zoomOut} disabled={zoom <= MIN_ZOOM}>−</button>
+        <button title="Ajustar à largura" className="zoom-percent" onClick={resetZoom}>
+          {Math.round(zoom * 100)}%
+        </button>
+        <button title="Aumentar zoom" onClick={zoomIn} disabled={zoom >= MAX_ZOOM}>+</button>
+      </div>
+      <div className="page-canvas-wrapper">
       {tool === 'crop' && (
         <div className="crop-hint-bar">
           <span>Arraste para selecionar a área de corte.</span>
@@ -396,6 +418,7 @@ export function PageCanvas() {
         {cropRect && (
           <div className="crop-overlay" style={{ left: cropRect.left, top: cropRect.top, width: cropRect.width, height: cropRect.height }} />
         )}
+      </div>
       </div>
       </div>
     </div>
