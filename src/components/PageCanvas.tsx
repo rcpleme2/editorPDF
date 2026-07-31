@@ -15,6 +15,9 @@ export function PageCanvas() {
   const tool = useEditorStore((s) => s.tool)
   const strokeColor = useEditorStore((s) => s.strokeColor)
   const fontSize = useEditorStore((s) => s.fontSize)
+  const stampText = useEditorStore((s) => s.stampText)
+  const stampBold = useEditorStore((s) => s.stampBold)
+  const stampFilled = useEditorStore((s) => s.stampFilled)
   const setActivePage = useEditorStore((s) => s.setActivePage)
 
   const outerRef = useRef<HTMLDivElement>(null)
@@ -117,6 +120,9 @@ export function PageCanvas() {
                 tool={tool}
                 strokeColor={strokeColor}
                 fontSize={fontSize}
+                stampText={stampText}
+                stampBold={stampBold}
+                stampFilled={stampFilled}
                 isActive={currentPageId === page.id}
                 onActivate={() => setActivePage(page.id)}
               />

@@ -114,6 +114,32 @@
   padding: 2px 4px;
 }
 
+.toolbar-stamp {
+  gap: 12px;
+  font-size: 12px;
+}
+
+.stamp-text-input {
+  width: 180px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.stamp-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.stamp-hint {
+  opacity: 0.6;
+  white-space: nowrap;
+}
+
 .toolbar-actions button {
   padding: 8px 14px;
   border-radius: 6px;
@@ -464,6 +490,22 @@
 .ann-highlight {
   cursor: move;
   mix-blend-mode: multiply;
+}
+
+.ann-stamp {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 4px;
+  font-family: Helvetica, Arial, sans-serif;
+  line-height: 1.1;
+  overflow: hidden;
+}
+
+.ann-stamp-text {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .ann-handle {

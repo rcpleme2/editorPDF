@@ -275,6 +275,35 @@ export function AnnotationView({
     )
   }
 
+  if (ann.type === 'stamp') {
+    return (
+      <div
+        className={`ann-box ann-stamp ${selected ? 'selected' : ''}`}
+        style={{
+          left: box.left,
+          top: box.top,
+          width: box.width,
+          height: box.height,
+          border: `2px solid ${colorToCss(ann.color)}`,
+          background: ann.filled ? colorToCss(ann.color, 0.15) : 'transparent',
+          color: colorToCss(ann.color),
+          fontWeight: ann.bold ? 'bold' : 'normal',
+          fontSize: ann.fontSize * viewport.scale || 12,
+          cursor: interactive ? 'move' : 'default',
+        }}
+        onPointerDown={(e) => beginDrag(e, 'move')}
+      >
+        <span className="ann-stamp-text">{ann.text}</span>
+        {selected && interactive && (
+          <>
+            <div className="ann-handle corner" style={{ right: -6, bottom: -6 }} onPointerDown={(e) => beginDrag(e, 'resize')} />
+            <button className="ann-delete" style={{ right: -12, top: -12 }} onClick={handleDelete}>✕</button>
+          </>
+        )}
+      </div>
+    )
+  }
+
   // rect / circle
   return (
     <div

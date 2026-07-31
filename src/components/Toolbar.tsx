@@ -14,6 +14,7 @@ const TOOLS: { id: ToolId; label: string; icon: string; hint?: string }[] = [
   { id: 'line', label: 'Linha', icon: '╱' },
   { id: 'arrow', label: 'Seta', icon: '➜' },
   { id: 'note', label: 'Nota', icon: '🗒' },
+  { id: 'stamp', label: 'Carimbo', icon: '🖃', hint: 'Configure o texto abaixo e arraste na página para carimbar' },
   { id: 'crop', label: 'Cortar página', icon: '⛶' },
 ]
 
@@ -42,6 +43,12 @@ export function Toolbar() {
   const setStrokeColor = useEditorStore((s) => s.setStrokeColor)
   const fontSize = useEditorStore((s) => s.fontSize)
   const setFontSize = useEditorStore((s) => s.setFontSize)
+  const stampText = useEditorStore((s) => s.stampText)
+  const setStampText = useEditorStore((s) => s.setStampText)
+  const stampBold = useEditorStore((s) => s.stampBold)
+  const setStampBold = useEditorStore((s) => s.setStampBold)
+  const stampFilled = useEditorStore((s) => s.stampFilled)
+  const setStampFilled = useEditorStore((s) => s.setStampFilled)
   const sources = useEditorStore((s) => s.sources)
   const pages = useEditorStore((s) => s.pages)
   const reset = useEditorStore((s) => s.reset)
@@ -134,7 +141,7 @@ export function Toolbar() {
                 }}
               />
             </div>
-            {tool === 'text' && (
+            {(tool === 'text' || tool === 'stamp') && (
               <label className="font-size-control">
                 Tamanho
                 <input
@@ -147,6 +154,27 @@ export function Toolbar() {
               </label>
             )}
           </div>
+
+          {tool === 'stamp' && (
+            <div className="toolbar-group toolbar-stamp">
+              <input
+                type="text"
+                className="stamp-text-input"
+                placeholder="Texto do carimbo"
+                value={stampText}
+                onChange={(e) => setStampText(e.target.value)}
+              />
+              <label className="stamp-check">
+                <input type="checkbox" checked={stampBold} onChange={(e) => setStampBold(e.target.checked)} />
+                Negrito
+              </label>
+              <label className="stamp-check">
+                <input type="checkbox" checked={stampFilled} onChange={(e) => setStampFilled(e.target.checked)} />
+                Preenchido
+              </label>
+              <span className="stamp-hint">Arraste na página para carimbar</span>
+            </div>
+          )}
 
           <div className="toolbar-group toolbar-actions">
             <button onClick={undo} disabled={!canUndo} title="Desfazer (Ctrl+Z)">

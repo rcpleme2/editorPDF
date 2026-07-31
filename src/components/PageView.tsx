@@ -19,6 +19,9 @@ export function PageView({
   tool,
   strokeColor,
   fontSize,
+  stampText,
+  stampBold,
+  stampFilled,
   isActive,
   onActivate,
 }: {
@@ -29,6 +32,9 @@ export function PageView({
   tool: ToolId
   strokeColor: RGB
   fontSize: number
+  stampText: string
+  stampBold: boolean
+  stampFilled: boolean
   isActive: boolean
   onActivate: () => void
 }) {
@@ -278,6 +284,18 @@ export function PageView({
           ...pdfBox,
           strokeWidth: 2,
           fill: false,
+          color: strokeColor,
+        } as Annotation)
+      } else if (tool === 'stamp') {
+        addAnnotation(page.id, {
+          id: newId(),
+          type: 'stamp',
+          pageIndex: 0,
+          ...pdfBox,
+          text: stampText.trim() || 'CARIMBO',
+          fontSize,
+          bold: stampBold,
+          filled: stampFilled,
           color: strokeColor,
         } as Annotation)
       }

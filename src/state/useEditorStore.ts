@@ -24,6 +24,11 @@ interface EditorState {
   strokeColor: RGB
   fontSize: number
   clipboard: Annotation | null
+  // Current stamp configuration — not persisted across sessions, just held
+  // in memory so the same stamp can be placed repeatedly without retyping.
+  stampText: string
+  stampBold: boolean
+  stampFilled: boolean
   past: PageState[][]
   // Bumped on every explicit "jump to this page" request (e.g. a sidebar
   // click), separately from currentPageId so the continuous scroll view can
@@ -43,6 +48,9 @@ interface EditorState {
   setSelectedAnnotation: (id: string | null) => void
   setStrokeColor: (c: RGB) => void
   setFontSize: (n: number) => void
+  setStampText: (text: string) => void
+  setStampBold: (bold: boolean) => void
+  setStampFilled: (filled: boolean) => void
   copySelectedAnnotation: () => void
   pasteAnnotation: () => void
   duplicateSelectedAnnotation: () => void
@@ -67,6 +75,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   strokeColor: { r: 229, g: 57, b: 53 },
   fontSize: 16,
   clipboard: null,
+  stampText: 'APROVADO',
+  stampBold: true,
+  stampFilled: false,
   past: [],
   navigateToken: 0,
   navigateTargetId: null,
@@ -117,6 +128,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setSelectedAnnotation: (id) => set({ selectedAnnotationId: id }),
   setStrokeColor: (c) => set({ strokeColor: c }),
   setFontSize: (n) => set({ fontSize: n }),
+  setStampText: (text) => set({ stampText: text }),
+  setStampBold: (bold) => set({ stampBold: bold }),
+  setStampFilled: (filled) => set({ stampFilled: filled }),
 
   reorderPages: (fromIndex, toIndex) =>
     set((s) => {

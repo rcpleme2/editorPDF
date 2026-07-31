@@ -8,6 +8,7 @@ export type ToolId =
   | 'line'
   | 'arrow'
   | 'note'
+  | 'stamp'
   | 'crop'
 
 export type RGB = { r: number; g: number; b: number }
@@ -74,6 +75,15 @@ export interface NoteAnnotation extends AnnotationBase {
   open: boolean
 }
 
+export interface StampAnnotation extends AnnotationBase {
+  type: 'stamp'
+  text: string
+  fontSize: number
+  bold: boolean
+  /** translucent background fill using `color`, in addition to the border */
+  filled: boolean
+}
+
 export type Annotation =
   | TextAnnotation
   | HighlightAnnotation
@@ -82,6 +92,7 @@ export type Annotation =
   | ArrowAnnotation
   | FreehandAnnotation
   | NoteAnnotation
+  | StampAnnotation
 
 export interface PageState {
   id: string

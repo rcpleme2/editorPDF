@@ -192,6 +192,42 @@ async function drawAnnotation(
       })
       break
     }
+    case 'stamp': {
+      if (ann.filled) {
+        page.drawRectangle({
+          x: ann.x,
+          y: ann.y,
+          width: ann.width,
+          height: ann.height,
+          color: toColor(ann.color),
+          opacity: 0.15,
+        })
+      }
+      page.drawRectangle({
+        x: ann.x,
+        y: ann.y,
+        width: ann.width,
+        height: ann.height,
+        borderColor: toColor(ann.color),
+        borderWidth: 2,
+      })
+      const font = ann.bold ? helvBold : helv
+      const lines = ann.text.split('\n')
+      const lineHeight = ann.fontSize * 1.2
+      const blockHeight = lineHeight * lines.length
+      const topY = ann.y + ann.height / 2 + blockHeight / 2
+      lines.forEach((line, i) => {
+        const textWidth = font.widthOfTextAtSize(line, ann.fontSize)
+        page.drawText(line, {
+          x: ann.x + (ann.width - textWidth) / 2,
+          y: topY - lineHeight * (i + 1) + (lineHeight - ann.fontSize) / 2,
+          size: ann.fontSize,
+          font,
+          color: toColor(ann.color),
+        })
+      })
+      break
+    }
   }
 }
 
