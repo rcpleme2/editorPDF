@@ -9,6 +9,13 @@ const MAX_ZOOM = 3
 const ZOOM_STEP = 0.1
 const INITIAL_RENDER_COUNT = 3
 const PRELOAD_MARGIN = '1000px 0px'
+// Shrinks the observed root down to a thin horizontal band positioned just
+// below the sticky zoom-controls bar. Whichever page slot crosses that band
+// is "the" active page — a single, unambiguous target line, unlike
+// comparing intersection ratios (which breaks down when every page is
+// taller than the viewport, since the page nearest the top and the one
+// below it can end up with very similar visible-area ratios).
+const ACTIVE_LINE_MARGIN = '-20% 0px -70% 0px'
 
 export function PageCanvas() {
   const pages = useEditorStore((s) => s.pages)
@@ -48,44 +55,55 @@ export function PageCanvas() {
     return () => obs.disconnect()
   }, [])
 
-  // Track which page is most visible (for the sidebar highlight / crop hint
-  // bar) and, more loosely (via a large rootMargin), which pages are close
-  // enough to the viewport that they should be fully rendered — pages far
-  // away stay as lightweight placeholders so huge PDFs don't render every
-  // page's canvas up front.
+  // Which pages are close enough to the viewport (via a large preload
+  // rootMargin) that they should be fully rendered — pages far away stay as
+  // lightweight placeholders so huge PDFs don't render every page's canvas
+  // up front.
   useEffect(() => {
     const scrollRoot = outerRef.current?.closest('.app-main')
     if (!scrollRoot) return
     const observer = new IntersectionObserver(
       (entries) => {
-        let best: { id: string; ratio: number } | null = null
-        const newlyNear: string[] = []
-        for (const entry of entries) {
-          const id = (entry.target as HTMLElement).dataset.pageId
-          if (!id) continue
-          if (entry.isIntersecting) {
-            newlyNear.push(id)
-            if (entry.intersectionRatio > 0 && (!best || entry.intersectionRatio > best.ratio)) {
-              best = { id, ratio: entry.intersectionRatio }
+        const newlyNear = entries
+          .filter((e) => e.isIntersecting)
+          .map((e) => (e.target as HTMLElement).dataset.pageId)
+          .filter((id): id is string => !!id)
+        if (newlyNear.length === 0) return
+        setRenderSet((prev) => {
+          let changed = false
+          const next = new Set(prev)
+          for (const id of newlyNear) {
+            if (!next.has(id)) {
+              next.add(id)
+              changed = true
             }
           }
-        }
-        if (best) setActivePage(best.id)
-        if (newlyNear.length > 0) {
-          setRenderSet((prev) => {
-            let changed = false
-            const next = new Set(prev)
-            for (const id of newlyNear) {
-              if (!next.has(id)) {
-                next.add(id)
-                changed = true
-              }
-            }
-            return changed ? next : prev
-          })
+          return changed ? next : prev
+        })
+      },
+      { root: scrollRoot, rootMargin: PRELOAD_MARGIN, threshold: 0 },
+    )
+    for (const el of pageRefs.current.values()) observer.observe(el)
+    return () => observer.disconnect()
+  }, [pages])
+
+  // Which page is "active" (sidebar highlight, crop hint bar): whichever
+  // page slot crosses a thin detection line near the top of the viewport.
+  useEffect(() => {
+    const scrollRoot = outerRef.current?.closest('.app-main')
+    if (!scrollRoot) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue
+          const id = (entry.target as HTMLElement).dataset.pageId
+          if (id) {
+            setActivePage(id)
+            break
+          }
         }
       },
-      { root: scrollRoot, rootMargin: PRELOAD_MARGIN, threshold: [0, 0.15, 0.35, 0.55, 0.75] },
+      { root: scrollRoot, rootMargin: ACTIVE_LINE_MARGIN, threshold: 0 },
     )
     for (const el of pageRefs.current.values()) observer.observe(el)
     return () => observer.disconnect()
