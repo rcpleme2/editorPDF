@@ -254,6 +254,21 @@
   margin-top: 12px;
 }
 
+.toolbar-error,
+.toolbar-info {
+  width: 100%;
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+.toolbar-error {
+  color: var(--danger);
+}
+
+.toolbar-info {
+  opacity: 0.75;
+}
+
 /* Layout */
 .app-main {
   flex: 1;

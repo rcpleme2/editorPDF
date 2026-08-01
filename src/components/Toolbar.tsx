@@ -1,8 +1,10 @@
 import { useMemo, useRef, useState } from 'react'
+import { PDFDocument } from 'pdf-lib'
 import { useEditorStore } from '../state/useEditorStore'
 import { exportPdf } from '../lib/pdfEngine'
 import { importFileAsPages } from '../lib/importFiles'
 import { describeFormFields } from '../lib/pdfForms'
+import { compressPdfImages } from '../lib/pdfCompress'
 import type { RGB, ToolId } from '../types'
 
 const TOOLS: { id: ToolId; label: string; icon: string; hint?: string }[] = [
@@ -61,6 +63,7 @@ export function Toolbar() {
   const canUndo = useEditorStore((s) => s.past.length > 0)
   const [busy, setBusy] = useState<string | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
+  const [compressInfo, setCompressInfo] = useState<string | null>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
 
   const hasDoc = pages.length > 0
@@ -74,6 +77,33 @@ export function Toolbar() {
     try {
       const bytes = await exportPdf(sources.map((e) => e.source), pages, formValues)
       downloadBytes(bytes, 'documento-editado.pdf', 'application/pdf')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function handleCompressExport() {
+    setBusy('compress')
+    setCompressInfo(null)
+    try {
+      const original = await exportPdf(sources.map((e) => e.source), pages, formValues)
+      const doc = await PDFDocument.load(original)
+      const { imagesProcessed } = await compressPdfImages(doc)
+      let finalBytes = await doc.save()
+      try {
+        // Safety net: only offer the recompressed file if it's still a
+        // structurally valid PDF.
+        await PDFDocument.load(finalBytes)
+      } catch {
+        finalBytes = original
+      }
+      downloadBytes(finalBytes, 'documento-comprimido.pdf', 'application/pdf')
+      const pct = original.length > 0 ? Math.round((1 - finalBytes.length / original.length) * 100) : 0
+      setCompressInfo(
+        imagesProcessed > 0
+          ? `Tamanho reduzido em ${pct}% (${(original.length / 1024 / 1024).toFixed(2)} MB → ${(finalBytes.length / 1024 / 1024).toFixed(2)} MB), ${imagesProcessed} imagem(ns) recomprimida(s).`
+          : 'Nenhuma imagem JPEG compressível foi encontrada — o arquivo baixado é essencialmente o mesmo.',
+      )
     } finally {
       setBusy(null)
     }
@@ -207,6 +237,13 @@ export function Toolbar() {
               hidden
               onChange={(e) => void handleImportFiles(e.target.files)}
             />
+            <button
+              onClick={handleCompressExport}
+              disabled={busy !== null}
+              title="Recomprime imagens JPEG incorporadas para reduzir o tamanho do arquivo"
+            >
+              {busy === 'compress' ? 'Reduzindo…' : '🗜 Reduzir tamanho'}
+            </button>
             <button className="primary" onClick={handleExport} disabled={busy !== null}>
               {busy === 'export' ? 'Exportando…' : 'Baixar PDF'}
             </button>
@@ -215,6 +252,7 @@ export function Toolbar() {
         </>
       )}
       {importError && <p className="dropzone-error toolbar-error">{importError}</p>}
+      {compressInfo && <p className="toolbar-info">{compressInfo}</p>}
     </header>
   )
 }
