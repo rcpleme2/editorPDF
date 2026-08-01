@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useEditorStore, type SourceEntry } from '../state/useEditorStore'
 import { getPageTextItems, getPageViewport, renderPageToDataUrl, type PdfViewport } from '../lib/pdfRender'
 import { pdfBoxToScreen, screenBoxToPdf, screenPointToPdf } from '../lib/geometry'
+import { computePageScale } from '../lib/pageScale'
 import { AnnotationView } from './AnnotationView'
-import type { Annotation, PageState, TextItem, ToolId, RGB } from '../types'
+import type { Annotation, PageState, SearchMatch, TextItem, ToolId, RGB } from '../types'
 
 const MIN_DRAG = 4
 
@@ -24,6 +25,8 @@ export function PageView({
   stampFilled,
   isActive,
   onActivate,
+  matches,
+  activeMatchItemIndex,
 }: {
   page: PageState
   entry: SourceEntry
@@ -37,6 +40,8 @@ export function PageView({
   stampFilled: boolean
   isActive: boolean
   onActivate: () => void
+  matches: SearchMatch[]
+  activeMatchItemIndex: number | null
 }) {
   const addAnnotation = useEditorStore((s) => s.addAnnotation)
   const setSelectedAnnotation = useEditorStore((s) => s.setSelectedAnnotation)
@@ -51,9 +56,7 @@ export function PageView({
   const [cropRect, setCropRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null)
   const drawingRef = useRef<{ startX: number; startY: number } | null>(null)
 
-  const displayW = page.rotation % 180 === 0 ? page.width : page.height
-  const fitScale = containerWidth / displayW
-  const scale = Math.min(Math.max(fitScale * zoom, 0.1), 6)
+  const { scale } = computePageScale(page, containerWidth, zoom)
 
   useEffect(() => {
     let cancelled = false
@@ -371,6 +374,18 @@ export function PageView({
             page.annotations.map((ann) => (
               <AnnotationView key={ann.id} ann={ann} pageId={page.id} viewport={viewport} interactive={tool === 'select'} />
             ))}
+          {viewport &&
+            matches.map((m) => {
+              const box = pdfBoxToScreen(viewport, m.item.x, m.item.y, m.item.width, m.item.height)
+              const active = m.itemIndex === activeMatchItemIndex
+              return (
+                <div
+                  key={m.itemIndex}
+                  className={`search-highlight ${active ? 'active' : ''}`}
+                  style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
+                />
+              )
+            })}
           {draft && (
             <div
               className={`draft-box draft-${draft.type}`}

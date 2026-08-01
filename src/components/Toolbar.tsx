@@ -49,6 +49,7 @@ export function Toolbar() {
   const setStampBold = useEditorStore((s) => s.setStampBold)
   const stampFilled = useEditorStore((s) => s.stampFilled)
   const setStampFilled = useEditorStore((s) => s.setStampFilled)
+  const setSearchOpen = useEditorStore((s) => s.setSearchOpen)
   const sources = useEditorStore((s) => s.sources)
   const pages = useEditorStore((s) => s.pages)
   const reset = useEditorStore((s) => s.reset)
@@ -177,6 +178,9 @@ export function Toolbar() {
           )}
 
           <div className="toolbar-group toolbar-actions">
+            <button onClick={() => setSearchOpen(true)} title="Buscar texto (Ctrl+F)">
+              🔍 Buscar
+            </button>
             <button onClick={undo} disabled={!canUndo} title="Desfazer (Ctrl+Z)">
               ↺ Desfazer
             </button>

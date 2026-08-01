@@ -117,3 +117,9 @@ export interface TextItem {
   fontSize: number
   fontName: string
 }
+
+export interface SearchMatch {
+  pageId: string
+  itemIndex: number
+  item: TextItem
+}

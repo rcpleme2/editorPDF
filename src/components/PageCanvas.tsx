@@ -1,10 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useEditorStore } from '../state/useEditorStore'
 import { PageView } from './PageView'
+import { computePageScale } from '../lib/pageScale'
+import type { SearchMatch } from '../types'
 
 const MIN_ZOOM = 0.25
 const MAX_ZOOM = 3
 const ZOOM_STEP = 0.1
+const INITIAL_RENDER_COUNT = 3
+const PRELOAD_MARGIN = '1000px 0px'
 
 export function PageCanvas() {
   const pages = useEditorStore((s) => s.pages)
@@ -19,11 +23,19 @@ export function PageCanvas() {
   const stampBold = useEditorStore((s) => s.stampBold)
   const stampFilled = useEditorStore((s) => s.stampFilled)
   const setActivePage = useEditorStore((s) => s.setActivePage)
+  const searchResults = useEditorStore((s) => s.searchResults)
+  const searchActiveIndex = useEditorStore((s) => s.searchActiveIndex)
 
   const outerRef = useRef<HTMLDivElement>(null)
   const pageRefs = useRef(new Map<string, HTMLDivElement>())
   const [containerWidth, setContainerWidth] = useState(800)
   const [zoom, setZoom] = useState(1)
+  // Pages that get their real content mounted (viewport render + tool
+  // interaction). Grows as the user scrolls near a page; never shrinks, to
+  // avoid remount/refetch flicker for pages briefly scrolled past.
+  const [renderSet, setRenderSet] = useState<Set<string>>(
+    () => new Set(pages.slice(0, INITIAL_RENDER_COUNT).map((p) => p.id)),
+  )
 
   useEffect(() => {
     const el = outerRef.current
@@ -36,39 +48,72 @@ export function PageCanvas() {
     return () => obs.disconnect()
   }, [])
 
-  // Track which page is most visible in the scroll container and mark it
-  // "active" (used for the crop hint bar and to keep the sidebar in sync),
-  // without disturbing tool/selection state the way an explicit navigation would.
+  // Track which page is most visible (for the sidebar highlight / crop hint
+  // bar) and, more loosely (via a large rootMargin), which pages are close
+  // enough to the viewport that they should be fully rendered — pages far
+  // away stay as lightweight placeholders so huge PDFs don't render every
+  // page's canvas up front.
   useEffect(() => {
     const scrollRoot = outerRef.current?.closest('.app-main')
     if (!scrollRoot) return
     const observer = new IntersectionObserver(
       (entries) => {
         let best: { id: string; ratio: number } | null = null
+        const newlyNear: string[] = []
         for (const entry of entries) {
           const id = (entry.target as HTMLElement).dataset.pageId
           if (!id) continue
-          if (entry.isIntersecting && (!best || entry.intersectionRatio > best.ratio)) {
-            best = { id, ratio: entry.intersectionRatio }
+          if (entry.isIntersecting) {
+            newlyNear.push(id)
+            if (entry.intersectionRatio > 0 && (!best || entry.intersectionRatio > best.ratio)) {
+              best = { id, ratio: entry.intersectionRatio }
+            }
           }
         }
         if (best) setActivePage(best.id)
+        if (newlyNear.length > 0) {
+          setRenderSet((prev) => {
+            let changed = false
+            const next = new Set(prev)
+            for (const id of newlyNear) {
+              if (!next.has(id)) {
+                next.add(id)
+                changed = true
+              }
+            }
+            return changed ? next : prev
+          })
+        }
       },
-      { root: scrollRoot, threshold: [0.15, 0.35, 0.55, 0.75] },
+      { root: scrollRoot, rootMargin: PRELOAD_MARGIN, threshold: [0, 0.15, 0.35, 0.55, 0.75] },
     )
     for (const el of pageRefs.current.values()) observer.observe(el)
     return () => observer.disconnect()
   }, [pages, setActivePage])
 
-  // Explicit "jump to this page" request (sidebar click) — scroll it into
-  // view. Driven by navigateToken (not currentPageId) so that currentPageId
-  // simply following the user's own scroll never triggers a re-scroll.
+  // Explicit "jump to this page" request (sidebar click, search result,
+  // arrow-key navigation) — force-render it immediately (don't wait for the
+  // preload margin to catch up) and scroll it into view. Driven by
+  // navigateToken (not currentPageId) so that currentPageId simply
+  // following the user's own scroll never triggers a re-scroll.
   useEffect(() => {
     if (navigateToken === 0 || !navigateTargetId) return
+    setRenderSet((prev) => (prev.has(navigateTargetId) ? prev : new Set(prev).add(navigateTargetId)))
     const el = pageRefs.current.get(navigateTargetId)
     el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigateToken])
+
+  const matchesByPage = useMemo(() => {
+    const map = new Map<string, SearchMatch[]>()
+    for (const m of searchResults) {
+      const list = map.get(m.pageId)
+      if (list) list.push(m)
+      else map.set(m.pageId, [m])
+    }
+    return map
+  }, [searchResults])
+  const activeMatch = searchActiveIndex >= 0 ? searchResults[searchActiveIndex] : null
 
   function zoomIn() {
     setZoom((z) => Math.min(MAX_ZOOM, Math.round((z + ZOOM_STEP) * 100) / 100))
@@ -101,6 +146,7 @@ export function PageCanvas() {
         {pages.map((page, i) => {
           const entry = sources[page.sourceDocIndex]
           if (!entry) return null
+          const shouldRender = renderSet.has(page.id)
           return (
             <div
               key={page.id}
@@ -112,24 +158,45 @@ export function PageCanvas() {
               className="page-canvas-slot"
             >
               <div className="page-number-label">Página {i + 1}</div>
-              <PageView
-                page={page}
-                entry={entry}
-                containerWidth={containerWidth}
-                zoom={zoom}
-                tool={tool}
-                strokeColor={strokeColor}
-                fontSize={fontSize}
-                stampText={stampText}
-                stampBold={stampBold}
-                stampFilled={stampFilled}
-                isActive={currentPageId === page.id}
-                onActivate={() => setActivePage(page.id)}
-              />
+              {shouldRender ? (
+                <PageView
+                  page={page}
+                  entry={entry}
+                  containerWidth={containerWidth}
+                  zoom={zoom}
+                  tool={tool}
+                  strokeColor={strokeColor}
+                  fontSize={fontSize}
+                  stampText={stampText}
+                  stampBold={stampBold}
+                  stampFilled={stampFilled}
+                  isActive={currentPageId === page.id}
+                  onActivate={() => setActivePage(page.id)}
+                  matches={matchesByPage.get(page.id) ?? EMPTY_MATCHES}
+                  activeMatchItemIndex={activeMatch?.pageId === page.id ? activeMatch.itemIndex : null}
+                />
+              ) : (
+                <PagePlaceholder page={page} containerWidth={containerWidth} zoom={zoom} />
+              )}
             </div>
           )
         })}
       </div>
     </div>
   )
+}
+
+const EMPTY_MATCHES: SearchMatch[] = []
+
+function PagePlaceholder({
+  page,
+  containerWidth,
+  zoom,
+}: {
+  page: { width: number; height: number; rotation: number }
+  containerWidth: number
+  zoom: number
+}) {
+  const { scale, displayW, displayH } = computePageScale(page, containerWidth, zoom)
+  return <div className="page-canvas-placeholder" style={{ width: displayW * scale, height: displayH * scale }} />
 }

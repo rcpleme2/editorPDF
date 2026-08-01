@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { LoadedSource } from '../lib/pdfEngine'
-import type { PdfDocProxy } from '../lib/pdfRender'
-import type { Annotation, PageState, ToolId, RGB } from '../types'
+import { getPageTextItems, type PdfDocProxy } from '../lib/pdfRender'
+import type { Annotation, PageState, ToolId, RGB, SearchMatch, TextItem } from '../types'
 
 export interface SourceEntry {
   source: LoadedSource
@@ -9,6 +9,11 @@ export interface SourceEntry {
 }
 
 const MAX_HISTORY = 10
+
+// Per-loaded-file text extraction cache (keyed by the file's own generated
+// id + page index), so re-running a search doesn't re-extract text pdf.js
+// already gave us. Lives for the JS module's lifetime — just a perf cache.
+const textItemsCache = new Map<string, TextItem[]>()
 
 function pushPast(past: PageState[][], snapshot: PageState[]): PageState[][] {
   const next = [...past, snapshot]
@@ -37,6 +42,11 @@ interface EditorState {
   navigateToken: number
   navigateTargetId: string | null
 
+  searchOpen: boolean
+  searchQuery: string
+  searchResults: SearchMatch[]
+  searchActiveIndex: number
+
   addSource: (entry: SourceEntry, pages: PageState[]) => void
   reset: () => void
   undo: () => void
@@ -45,6 +55,11 @@ interface EditorState {
   setCurrentPage: (id: string) => void
   setActivePage: (id: string) => void
   goToPage: (id: string) => void
+  goToRelativePage: (delta: number) => void
+  setSearchOpen: (open: boolean) => void
+  runSearch: (query: string) => Promise<void>
+  nextSearchResult: () => void
+  prevSearchResult: () => void
   setSelectedAnnotation: (id: string | null) => void
   setStrokeColor: (c: RGB) => void
   setFontSize: (n: number) => void
@@ -81,6 +96,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   past: [],
   navigateToken: 0,
   navigateTargetId: null,
+
+  searchOpen: false,
+  searchQuery: '',
+  searchResults: [],
+  searchActiveIndex: -1,
 
   addSource: (entry, newPages) =>
     set((s) => {
@@ -125,6 +145,81 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       navigateTargetId: id,
       navigateToken: s.navigateToken + 1,
     })),
+  goToRelativePage: (delta) =>
+    set((s) => {
+      // Base the move on the last explicitly-requested page, not
+      // currentPageId — that field also tracks passive scroll position, and
+      // a smooth scroll from a previous arrow-key press can still be
+      // mid-flight (briefly reporting an intermediate page as "active"),
+      // which would otherwise make quick repeated presses skip pages.
+      const baseId = s.navigateTargetId ?? s.currentPageId
+      if (!baseId || s.pages.length === 0) return s
+      const idx = s.pages.findIndex((p) => p.id === baseId)
+      if (idx === -1) return s
+      const nextIdx = Math.min(Math.max(idx + delta, 0), s.pages.length - 1)
+      if (nextIdx === idx) return s
+      const target = s.pages[nextIdx]
+      return {
+        currentPageId: target.id,
+        selectedAnnotationId: null,
+        navigateTargetId: target.id,
+        navigateToken: s.navigateToken + 1,
+      }
+    }),
+  setSearchOpen: (open) =>
+    set(
+      open
+        ? { searchOpen: true }
+        : { searchOpen: false, searchQuery: '', searchResults: [], searchActiveIndex: -1 },
+    ),
+
+  runSearch: async (query) => {
+    set({ searchQuery: query })
+    const q = query.trim().toLowerCase()
+    if (!q) {
+      set({ searchResults: [], searchActiveIndex: -1 })
+      return
+    }
+    const { pages, sources } = get()
+    const results: SearchMatch[] = []
+    for (const page of pages) {
+      const entry = sources[page.sourceDocIndex]
+      if (!entry) continue
+      const cacheKey = `${entry.source.id}:${page.sourcePageIndex}`
+      let items = textItemsCache.get(cacheKey)
+      if (!items) {
+        items = await getPageTextItems(entry.renderDoc, page.sourcePageIndex)
+        textItemsCache.set(cacheKey, items)
+      }
+      items.forEach((item, itemIndex) => {
+        if (item.text.toLowerCase().includes(q)) {
+          results.push({ pageId: page.id, itemIndex, item })
+        }
+      })
+    }
+    // A newer search may have started while this one was extracting text —
+    // don't clobber its (possibly already-committed) results.
+    if (get().searchQuery !== query) return
+    set({ searchResults: results, searchActiveIndex: results.length > 0 ? 0 : -1 })
+    if (results.length > 0) get().goToPage(results[0].pageId)
+  },
+
+  nextSearchResult: () => {
+    const { searchResults, searchActiveIndex } = get()
+    if (searchResults.length === 0) return
+    const next = (searchActiveIndex + 1) % searchResults.length
+    set({ searchActiveIndex: next })
+    get().goToPage(searchResults[next].pageId)
+  },
+
+  prevSearchResult: () => {
+    const { searchResults, searchActiveIndex } = get()
+    if (searchResults.length === 0) return
+    const prev = (searchActiveIndex - 1 + searchResults.length) % searchResults.length
+    set({ searchActiveIndex: prev })
+    get().goToPage(searchResults[prev].pageId)
+  },
+
   setSelectedAnnotation: (id) => set({ selectedAnnotationId: id }),
   setStrokeColor: (c) => set({ strokeColor: c }),
   setFontSize: (n) => set({ fontSize: n }),

@@ -4,6 +4,7 @@ import { Toolbar } from './components/Toolbar'
 import { Dropzone } from './components/Dropzone'
 import { ThumbnailSidebar } from './components/ThumbnailSidebar'
 import { PageCanvas } from './components/PageCanvas'
+import { SearchBar } from './components/SearchBar'
 import './App.css'
 
 function isTypingTarget(target: EventTarget | null) {
@@ -13,13 +14,13 @@ function isTypingTarget(target: EventTarget | null) {
 
 function App() {
   const hasDoc = useEditorStore((s) => s.pages.length > 0)
+  const searchOpen = useEditorStore((s) => s.searchOpen)
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (isTypingTarget(e.target)) return
       const isMod = e.ctrlKey || e.metaKey
       const store = useEditorStore.getState()
-      if (!store.selectedAnnotationId && !isMod) return
 
       if (isMod && e.key.toLowerCase() === 'z') {
         e.preventDefault()
@@ -33,11 +34,24 @@ function App() {
       } else if (isMod && e.key.toLowerCase() === 'd') {
         e.preventDefault()
         store.duplicateSelectedAnnotation()
+      } else if (isMod && e.key.toLowerCase() === 'f') {
+        if (store.pages.length > 0) {
+          e.preventDefault()
+          store.setSearchOpen(true)
+        }
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         if (store.selectedAnnotationId && store.currentPageId) {
           e.preventDefault()
           store.removeAnnotation(store.currentPageId, store.selectedAnnotationId)
         }
+      } else if (!store.selectedAnnotationId && (e.key === 'ArrowDown' || e.key === 'PageDown')) {
+        e.preventDefault()
+        store.goToRelativePage(1)
+      } else if (!store.selectedAnnotationId && (e.key === 'ArrowUp' || e.key === 'PageUp')) {
+        e.preventDefault()
+        store.goToRelativePage(-1)
+      } else if (e.key === 'Escape' && store.searchOpen) {
+        store.setSearchOpen(false)
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -47,6 +61,7 @@ function App() {
   return (
     <div className="app-shell">
       <Toolbar />
+      {searchOpen && <SearchBar />}
       <div className="app-body">
         {hasDoc ? (
           <>
