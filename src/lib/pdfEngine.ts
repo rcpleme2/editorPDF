@@ -1,5 +1,6 @@
 import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib'
-import type { Annotation, PageState, RGB } from '../types'
+import { applyFormValues } from './pdfForms'
+import type { Annotation, FormFieldValue, PageState, RGB } from '../types'
 
 export interface LoadedSource {
   id: string
@@ -234,14 +235,36 @@ async function drawAnnotation(
 /** Builds the final exported PDF from the ordered list of PageState entries,
  * pulling pages from their respective source PDFDocuments and applying
  * crop/rotation/annotations. */
-export async function exportPdf(sources: LoadedSource[], pages: PageState[]): Promise<Uint8Array> {
+export async function exportPdf(
+  sources: LoadedSource[],
+  pages: PageState[],
+  formValues?: Record<number, Record<string, FormFieldValue>>,
+): Promise<Uint8Array> {
   const out = await PDFDocument.create()
   const helv = await out.embedFont(StandardFonts.Helvetica)
   const helvBold = await out.embedFont(StandardFonts.HelveticaBold)
 
+  // Filling + flattening a form mutates the document, so it's done once per
+  // source (on a clone, never the shared in-memory doc) and reused for every
+  // page pulled from that source.
+  const docsForExport = new Map<number, PDFDocument>()
+  async function getDocForExport(sourceDocIndex: number): Promise<PDFDocument> {
+    const cached = docsForExport.get(sourceDocIndex)
+    if (cached) return cached
+    const source = sources[sourceDocIndex]
+    const values = formValues?.[sourceDocIndex]
+    let doc = source.doc
+    if (values && Object.keys(values).length > 0) {
+      doc = await PDFDocument.load(await source.doc.save())
+      applyFormValues(doc, values)
+    }
+    docsForExport.set(sourceDocIndex, doc)
+    return doc
+  }
+
   for (const p of pages) {
-    const source = sources[p.sourceDocIndex]
-    const [copied] = await out.copyPages(source.doc, [p.sourcePageIndex])
+    const sourceDoc = await getDocForExport(p.sourceDocIndex)
+    const [copied] = await out.copyPages(sourceDoc, [p.sourcePageIndex])
     out.addPage(copied)
 
     if (p.rotation) copied.setRotation(degrees(p.rotation))

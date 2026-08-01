@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useEditorStore } from '../state/useEditorStore'
 import { exportPdf } from '../lib/pdfEngine'
 import { importFileAsPages } from '../lib/importFiles'
+import { describeFormFields } from '../lib/pdfForms'
 import type { RGB, ToolId } from '../types'
 
 const TOOLS: { id: ToolId; label: string; icon: string; hint?: string }[] = [
@@ -50,6 +51,8 @@ export function Toolbar() {
   const stampFilled = useEditorStore((s) => s.stampFilled)
   const setStampFilled = useEditorStore((s) => s.setStampFilled)
   const setSearchOpen = useEditorStore((s) => s.setSearchOpen)
+  const setFormPanelOpen = useEditorStore((s) => s.setFormPanelOpen)
+  const formValues = useEditorStore((s) => s.formValues)
   const sources = useEditorStore((s) => s.sources)
   const pages = useEditorStore((s) => s.pages)
   const reset = useEditorStore((s) => s.reset)
@@ -61,11 +64,15 @@ export function Toolbar() {
   const importInputRef = useRef<HTMLInputElement>(null)
 
   const hasDoc = pages.length > 0
+  const hasFormFields = useMemo(
+    () => sources.some((entry) => describeFormFields(entry.source.doc).length > 0),
+    [sources],
+  )
 
   async function handleExport() {
     setBusy('export')
     try {
-      const bytes = await exportPdf(sources.map((e) => e.source), pages)
+      const bytes = await exportPdf(sources.map((e) => e.source), pages, formValues)
       downloadBytes(bytes, 'documento-editado.pdf', 'application/pdf')
     } finally {
       setBusy(null)
@@ -181,6 +188,11 @@ export function Toolbar() {
             <button onClick={() => setSearchOpen(true)} title="Buscar texto (Ctrl+F)">
               🔍 Buscar
             </button>
+            {hasFormFields && (
+              <button onClick={() => setFormPanelOpen(true)} title="Preencher campos do formulário">
+                📝 Formulário
+              </button>
+            )}
             <button onClick={undo} disabled={!canUndo} title="Desfazer (Ctrl+Z)">
               ↺ Desfazer
             </button>

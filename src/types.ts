@@ -123,3 +123,5 @@ export interface SearchMatch {
   itemIndex: number
   item: TextItem
 }
+
+export type FormFieldValue = string | boolean | string[]

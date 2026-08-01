@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { LoadedSource } from '../lib/pdfEngine'
 import { getPageTextItems, type PdfDocProxy } from '../lib/pdfRender'
-import type { Annotation, PageState, ToolId, RGB, SearchMatch, TextItem } from '../types'
+import type { Annotation, PageState, ToolId, RGB, SearchMatch, TextItem, FormFieldValue } from '../types'
 
 export interface SourceEntry {
   source: LoadedSource
@@ -47,6 +47,11 @@ interface EditorState {
   searchResults: SearchMatch[]
   searchActiveIndex: number
 
+  formPanelOpen: boolean
+  // Field values keyed by sourceDocIndex then field name — not persisted
+  // across sessions, only applied at export time.
+  formValues: Record<number, Record<string, FormFieldValue>>
+
   addSource: (entry: SourceEntry, pages: PageState[]) => void
   reset: () => void
   undo: () => void
@@ -60,6 +65,8 @@ interface EditorState {
   runSearch: (query: string) => Promise<void>
   nextSearchResult: () => void
   prevSearchResult: () => void
+  setFormPanelOpen: (open: boolean) => void
+  setFormValue: (sourceDocIndex: number, name: string, value: FormFieldValue) => void
   setSelectedAnnotation: (id: string | null) => void
   setStrokeColor: (c: RGB) => void
   setFontSize: (n: number) => void
@@ -101,6 +108,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   searchQuery: '',
   searchResults: [],
   searchActiveIndex: -1,
+
+  formPanelOpen: false,
+  formValues: {},
 
   addSource: (entry, newPages) =>
     set((s) => {
@@ -219,6 +229,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({ searchActiveIndex: prev })
     get().goToPage(searchResults[prev].pageId)
   },
+
+  setFormPanelOpen: (open) => set({ formPanelOpen: open }),
+  setFormValue: (sourceDocIndex, name, value) =>
+    set((s) => ({
+      formValues: {
+        ...s.formValues,
+        [sourceDocIndex]: { ...(s.formValues[sourceDocIndex] ?? {}), [name]: value },
+      },
+    })),
 
   setSelectedAnnotation: (id) => set({ selectedAnnotationId: id }),
   setStrokeColor: (c) => set({ strokeColor: c }),

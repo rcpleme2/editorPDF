@@ -277,6 +277,99 @@
   gap: 12px;
 }
 
+/* Form panel */
+.form-panel {
+  width: 300px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+}
+
+.form-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.form-panel-header h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.form-panel-header button {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.form-panel-header button:hover {
+  background: var(--border);
+}
+
+.form-panel-body {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+}
+
+.form-panel-empty {
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+.form-section-title {
+  font-weight: 600;
+  font-size: 12px;
+  opacity: 0.75;
+  margin-bottom: 8px;
+  word-break: break-word;
+}
+
+.form-field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.form-field-label {
+  opacity: 0.8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.form-field-row input[type='text'],
+.form-field-row select {
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.form-field-row input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  align-self: flex-start;
+}
+
+.form-field-unsupported {
+  opacity: 0.5;
+  font-style: italic;
+}
+
 .thumb {
   position: relative;
   border: 2px solid transparent;

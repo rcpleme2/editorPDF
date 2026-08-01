@@ -5,6 +5,7 @@ import { Dropzone } from './components/Dropzone'
 import { ThumbnailSidebar } from './components/ThumbnailSidebar'
 import { PageCanvas } from './components/PageCanvas'
 import { SearchBar } from './components/SearchBar'
+import { FormPanel } from './components/FormPanel'
 import './App.css'
 
 function isTypingTarget(target: EventTarget | null) {
@@ -15,6 +16,7 @@ function isTypingTarget(target: EventTarget | null) {
 function App() {
   const hasDoc = useEditorStore((s) => s.pages.length > 0)
   const searchOpen = useEditorStore((s) => s.searchOpen)
+  const formPanelOpen = useEditorStore((s) => s.formPanelOpen)
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -69,6 +71,7 @@ function App() {
             <main className="app-main">
               <PageCanvas />
             </main>
+            {formPanelOpen && <FormPanel />}
           </>
         ) : (
           <main className="app-main app-main-empty">
