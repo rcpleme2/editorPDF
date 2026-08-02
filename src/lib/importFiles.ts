@@ -1,6 +1,7 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { loadSourcePdf, makeInitialPages, type LoadedSource } from './pdfEngine'
 import { loadPdfDocument, type PdfDocProxy } from './pdfRender'
+import { wrapText } from './textWrap'
 import type { PageState } from '../types'
 
 const PAGE_WIDTH = 595.28 // A4 pt
@@ -30,29 +31,6 @@ async function imageFileToPdfBytes(file: File): Promise<Uint8Array> {
   return doc.save()
 }
 
-function wrapText(text: string, font: import('pdf-lib').PDFFont, size: number, maxWidth: number): string[] {
-  const lines: string[] = []
-  for (const rawLine of text.split('\n')) {
-    const words = rawLine.split(/\s+/).filter(Boolean)
-    if (words.length === 0) {
-      lines.push('')
-      continue
-    }
-    let current = ''
-    for (const word of words) {
-      const candidate = current ? `${current} ${word}` : word
-      if (font.widthOfTextAtSize(candidate, size) > maxWidth && current) {
-        lines.push(current)
-        current = word
-      } else {
-        current = candidate
-      }
-    }
-    if (current) lines.push(current)
-  }
-  return lines
-}
-
 async function textToPdfBytes(lines: string[], opts?: { fontSize?: number; landscape?: boolean }): Promise<Uint8Array> {
   const fontSize = opts?.fontSize ?? 11
   const pageWidth = opts?.landscape ? PAGE_HEIGHT : PAGE_WIDTH
@@ -63,7 +41,7 @@ async function textToPdfBytes(lines: string[], opts?: { fontSize?: number; lands
   const usableWidth = pageWidth - MARGIN * 2
   const linesPerPage = Math.floor((pageHeight - MARGIN * 2) / lineHeight)
 
-  const wrapped = lines.flatMap((l) => wrapText(l, font, fontSize, usableWidth))
+  const wrapped = lines.flatMap((l) => wrapText(l, (s) => font.widthOfTextAtSize(s, fontSize), usableWidth))
   const finalLines = wrapped.length > 0 ? wrapped : ['']
 
   for (let i = 0; i < finalLines.length; i += linesPerPage) {

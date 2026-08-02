@@ -8,7 +8,7 @@ Editor de PDF que roda 100% no navegador — nenhum arquivo é enviado a um serv
 - **Importar páginas** de outros PDFs, imagens (PNG/JPG), Word (.docx) ou Excel (.xlsx) — cada arquivo é convertido e anexado como novas páginas ao documento atual
 - **Organização de páginas**: reordenar arrastando a miniatura inteira na barra lateral, excluir, duplicar, rotacionar, mesclar vários PDFs em um
 - **Cortar página** (crop) com seleção visual da área
-- **Texto**: inserir texto novo, ou clicar em um texto existente para cobri-lo e substituí-lo (edição por sobreposição — PDFs não têm parágrafos editáveis como o Word, então essa é a abordagem usada também por editores como Adobe/ILovePDF/SmallPDF)
+- **Texto**: inserir texto novo, ou clicar em um parágrafo existente para editá-lo com **reflow automático** — o texto quebra linha sozinho dentro da caixa original e a caixa cresce/encolhe conforme o conteúdo, tentando reaproveitar a mesma fonte embutida no PDF original (com Helvetica como alternativa quando isso não é possível)
 - **Anotações**: realce (highlight), desenho livre, retângulo, círculo, linha, seta e notas adesivas
 - **Carimbo**: texto e formatação configuráveis direto no app (não é salvo entre sessões), arraste para carimbar em qualquer página
 - **Copiar/colar/duplicar** anotações (Ctrl+C, Ctrl+V, Ctrl+D) e excluir com Delete/Backspace
@@ -80,7 +80,10 @@ Todas as edições ficam em memória no navegador até você clicar em **Baixar 
 
 ## Limitações conhecidas
 
-- A "edição de texto" cobre o texto original com uma caixa branca e escreve o novo texto por cima — não é uma reflow real de parágrafo (isso é uma limitação inerente ao formato PDF, não apenas desta ferramenta).
+- A edição de texto ainda cobre o parágrafo original com uma caixa branca e desenha o texto reflowed por cima — não empurra o conteúdo abaixo dele na página (reflow "de documento" completo, como um processador de texto, exigiria reconstruir o PDF como um layout fluido, o que está fora do escopo desta ferramenta).
+- Um parágrafo com estilos mistos (ex.: uma palavra em negrito no meio de texto normal) é reflowed com uma única fonte/estilo — a distinção por palavra dentro do mesmo parágrafo se perde.
+- A detecção de parágrafo é heurística (baseada em espaçamento e alinhamento); layouts incomuns (colunas, tabelas, texto rotacionado) podem ser agrupados de forma imperfeita.
+- A reutilização da fonte original só funciona para fontes TrueType/OpenType embutidas (`FontFile2`/`FontFile3`) sem compressão exótica; fontes `Type1` antigas ou não encontradas caem em Helvetica como aproximação.
 - Anotações em páginas rotacionadas têm sua posição/caixa ajustadas corretamente, mas o texto dentro delas não gira visualmente na tela (a orientação final no PDF exportado segue a posição definida).
 - A busca localiza ocorrências dentro de cada fragmento de texto extraído pelo pdf.js; termos que ficam divididos entre dois fragmentos adjacentes (renderizados com fontes/posições diferentes no PDF original) podem não ser encontrados.
 - "Reduzir tamanho" só recomprime imagens no formato JPEG (DCTDecode) com espaço de cor não-CMYK — outros formatos de imagem (PNG interno, JPEG2000, digitalizações CCITT) são deixados intactos para evitar risco de corrupção ou distorção de cor.

@@ -1,5 +1,8 @@
-import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib'
+import { PDFDocument, rgb, StandardFonts, degrees, type PDFFont } from 'pdf-lib'
+import fontkit from '@pdf-lib/fontkit'
 import { applyFormValues } from './pdfForms'
+import { resolveParagraphFont } from './resolveParagraphFont'
+import { wrapText } from './textWrap'
 import type { Annotation, FormFieldValue, PageState, RGB } from '../types'
 
 export interface LoadedSource {
@@ -48,6 +51,47 @@ function svgPathFromPoints(points: { x: number; y: number }[]): string {
   return `M ${first.x} ${first.y} ` + rest.map((p) => `L ${p.x} ${p.y}`).join(' ')
 }
 
+interface ParagraphFontContext {
+  outDoc: PDFDocument
+  sourceDoc: PDFDocument
+  sourcePageIndex: number
+  cacheKey: string
+  fontCache: Map<string, PDFFont>
+}
+
+/** Resolves the PDFFont to draw a reflowed paragraph with: tries to reuse
+ * the same font embedded in the source PDF (see resolveParagraphFont),
+ * embedding it into the output document on first use and reusing that
+ * PDFFont instance for every other paragraph on the same font. Falls back
+ * to the given Helvetica variant on any failure. */
+async function resolveExportFont(
+  ann: Extract<Annotation, { type: 'paragraph' }>,
+  ctx: ParagraphFontContext,
+  fallback: PDFFont,
+): Promise<PDFFont> {
+  try {
+    const resolved = await resolveParagraphFont(
+      ctx.sourceDoc,
+      ctx.sourcePageIndex,
+      ctx.cacheKey,
+      ann.sampleOriginalText,
+      ann.sampleOriginalWidth,
+      ann.fontSize,
+    )
+    if (!resolved) return fallback
+    const key = `${ctx.cacheKey}:${ctx.sourcePageIndex}:${resolved.resourceName}`
+    let embedded = ctx.fontCache.get(key)
+    if (!embedded) {
+      ctx.outDoc.registerFontkit(fontkit)
+      embedded = await ctx.outDoc.embedFont(resolved.bytes)
+      ctx.fontCache.set(key, embedded)
+    }
+    return embedded
+  } catch {
+    return fallback
+  }
+}
+
 /** Draws one annotation onto a pdf-lib page. All annotation coordinates are
  * already in the page's native PDF user space (bottom-left origin, y up). */
 async function drawAnnotation(
@@ -55,6 +99,7 @@ async function drawAnnotation(
   ann: Annotation,
   helv: import('pdf-lib').PDFFont,
   helvBold: import('pdf-lib').PDFFont,
+  fontCtx: ParagraphFontContext,
 ) {
   switch (ann.type) {
     case 'text': {
@@ -229,6 +274,29 @@ async function drawAnnotation(
       })
       break
     }
+    case 'paragraph': {
+      page.drawRectangle({
+        x: ann.x,
+        y: ann.y,
+        width: ann.width,
+        height: ann.height,
+        color: rgb(1, 1, 1),
+      })
+      const font = await resolveExportFont(ann, fontCtx, ann.bold ? helvBold : helv)
+      const lines = wrapText(ann.text, (s) => font.widthOfTextAtSize(s, ann.fontSize), ann.width)
+      const lineHeight = ann.fontSize * 1.2
+      const topY = ann.y + ann.height
+      lines.forEach((line, i) => {
+        page.drawText(line, {
+          x: ann.x,
+          y: topY - lineHeight * (i + 1) + (lineHeight - ann.fontSize) / 2,
+          size: ann.fontSize,
+          font,
+          color: toColor(ann.color),
+        })
+      })
+      break
+    }
   }
 }
 
@@ -262,6 +330,11 @@ export async function exportPdf(
     return doc
   }
 
+  // Shared across the whole export so the same source font is only
+  // embedded into the output document once, however many paragraphs (on
+  // however many pages) end up using it.
+  const paragraphFontCache = new Map<string, PDFFont>()
+
   for (const p of pages) {
     const sourceDoc = await getDocForExport(p.sourceDocIndex)
     const [copied] = await out.copyPages(sourceDoc, [p.sourcePageIndex])
@@ -272,8 +345,15 @@ export async function exportPdf(
       copied.setCropBox(p.cropBox.x, p.cropBox.y, p.cropBox.width, p.cropBox.height)
     }
 
+    const fontCtx: ParagraphFontContext = {
+      outDoc: out,
+      sourceDoc: sources[p.sourceDocIndex].doc,
+      sourcePageIndex: p.sourcePageIndex,
+      cacheKey: sources[p.sourceDocIndex].id,
+      fontCache: paragraphFontCache,
+    }
     for (const ann of p.annotations) {
-      await drawAnnotation(copied, ann, helv, helvBold)
+      await drawAnnotation(copied, ann, helv, helvBold, fontCtx)
     }
   }
 

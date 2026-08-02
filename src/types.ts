@@ -84,6 +84,25 @@ export interface StampAnnotation extends AnnotationBase {
   filled: boolean
 }
 
+export interface ParagraphAnnotation extends AnnotationBase {
+  type: 'paragraph'
+  text: string
+  fontSize: number
+  bold: boolean
+  italic: boolean
+  /** always true — a paragraph annotation always covers/replaces original PDF text */
+  isReplacement: true
+  /**
+   * One representative original text run from this paragraph (text + its
+   * measured width in the source PDF), kept so the same embedded font in
+   * the source document can be re-resolved deterministically later (both
+   * for on-screen wrapping and at export) without storing the font's raw
+   * bytes in app state/undo history.
+   */
+  sampleOriginalText: string
+  sampleOriginalWidth: number
+}
+
 export type Annotation =
   | TextAnnotation
   | HighlightAnnotation
@@ -93,6 +112,7 @@ export type Annotation =
   | FreehandAnnotation
   | NoteAnnotation
   | StampAnnotation
+  | ParagraphAnnotation
 
 export interface PageState {
   id: string

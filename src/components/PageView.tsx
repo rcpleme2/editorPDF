@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useEditorStore, type SourceEntry } from '../state/useEditorStore'
 import { getPageTextItems, getPageViewport, renderPageToDataUrl, type PdfViewport } from '../lib/pdfRender'
 import { pdfBoxToScreen, screenBoxToPdf, screenPointToPdf } from '../lib/geometry'
 import { computePageScale } from '../lib/pageScale'
+import { groupIntoParagraphs, findParagraphAt } from '../lib/textLayout'
 import { AnnotationView } from './AnnotationView'
 import type { Annotation, PageState, SearchMatch, TextItem, ToolId, RGB } from '../types'
 
@@ -77,14 +78,7 @@ export function PageView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entry, page.sourcePageIndex, page.rotation, scale])
 
-  function findTextItemAt(pdfX: number, pdfY: number): TextItem | null {
-    for (const item of textItems) {
-      if (pdfX >= item.x && pdfX <= item.x + item.width && pdfY >= item.y && pdfY <= item.y + item.height) {
-        return item
-      }
-    }
-    return null
-  }
+  const paragraphs = useMemo(() => groupIntoParagraphs(textItems), [textItems])
 
   function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (!viewport) return
@@ -100,11 +94,12 @@ export function PageView({
 
     if (tool === 'text') {
       const pdfPoint = screenPointToPdf(viewport, localX, localY)
-      const hit = findTextItemAt(pdfPoint.x, pdfPoint.y)
+      const hit = findParagraphAt(paragraphs, pdfPoint.x, pdfPoint.y)
       if (hit) {
+        const sample = hit.items.reduce((a, b) => (b.width > a.width ? b : a))
         addAnnotation(page.id, {
           id: newId(),
-          type: 'text',
+          type: 'paragraph',
           pageIndex: 0,
           x: hit.x,
           y: hit.y,
@@ -115,6 +110,8 @@ export function PageView({
           isReplacement: true,
           bold: false,
           italic: false,
+          sampleOriginalText: sample.text,
+          sampleOriginalWidth: sample.width,
           color: { r: 0, g: 0, b: 0 },
         } as Annotation)
       } else {
@@ -372,7 +369,16 @@ export function PageView({
           </svg>
           {viewport &&
             page.annotations.map((ann) => (
-              <AnnotationView key={ann.id} ann={ann} pageId={page.id} viewport={viewport} interactive={tool === 'select'} />
+              <AnnotationView
+                key={ann.id}
+                ann={ann}
+                pageId={page.id}
+                viewport={viewport}
+                interactive={tool === 'select'}
+                sourceDoc={entry.source.doc}
+                sourcePageIndex={page.sourcePageIndex}
+                cacheKey={entry.source.id}
+              />
             ))}
           {viewport &&
             matches.map((m) => {

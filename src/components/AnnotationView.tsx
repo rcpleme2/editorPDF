@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react'
+import type { PDFDocument } from 'pdf-lib'
 import type { PdfViewport } from '../lib/pdfRender'
 import { pdfBoxToScreen, pdfPointToScreen, screenPointToPdf } from '../lib/geometry'
 import { useEditorStore } from '../state/useEditorStore'
+import { ParagraphAnnotationView } from './ParagraphAnnotationView'
 import type { Annotation } from '../types'
 
 function colorToCss(c: { r: number; g: number; b: number }, alpha = 1) {
@@ -13,11 +15,17 @@ export function AnnotationView({
   pageId,
   viewport,
   interactive,
+  sourceDoc,
+  sourcePageIndex,
+  cacheKey,
 }: {
   ann: Annotation
   pageId: string
   viewport: PdfViewport
   interactive: boolean
+  sourceDoc: PDFDocument
+  sourcePageIndex: number
+  cacheKey: string
 }) {
   const updateAnnotation = useEditorStore((s) => s.updateAnnotation)
   const removeAnnotation = useEditorStore((s) => s.removeAnnotation)
@@ -132,6 +140,20 @@ export function AnnotationView({
   }
 
   const box = commonBoxStyle!
+
+  if (ann.type === 'paragraph') {
+    return (
+      <ParagraphAnnotationView
+        ann={ann}
+        pageId={pageId}
+        viewport={viewport}
+        interactive={interactive}
+        sourceDoc={sourceDoc}
+        sourcePageIndex={sourcePageIndex}
+        cacheKey={cacheKey}
+      />
+    )
+  }
 
   if (ann.type === 'text') {
     return (
