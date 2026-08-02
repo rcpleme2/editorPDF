@@ -4,7 +4,7 @@ import { getPageTextItems, getPageViewport, renderPageToDataUrl, type PdfViewpor
 import { pdfBoxToScreen, screenBoxToPdf, screenPointToPdf } from '../lib/geometry'
 import { computePageScale } from '../lib/pageScale'
 import { groupIntoParagraphs, findParagraphAt, type ParagraphBlock } from '../lib/textLayout'
-import { sampleBackgroundColor } from '../lib/sampleBackgroundColor'
+import { samplePageColors } from '../lib/sampleBackgroundColor'
 import { AnnotationView } from './AnnotationView'
 import type { Annotation, PageState, SearchMatch, TextItem, ToolId, RGB } from '../types'
 
@@ -84,9 +84,20 @@ export function PageView({
   async function createParagraphAnnotation(hit: ParagraphBlock) {
     const sample = hit.items.reduce((a, b) => (b.width > a.width ? b : a))
     let backgroundColor = { r: 255, g: 255, b: 255 }
+    let color = { r: 0, g: 0, b: 0 }
     if (viewport && bgUrl) {
-      const [sx, sy] = viewport.convertToViewportPoint(hit.x - 4, hit.y + hit.height / 2)
-      backgroundColor = await sampleBackgroundColor(bgUrl, sx, sy)
+      const [bgX, bgY] = viewport.convertToViewportPoint(hit.x - 4, hit.y + hit.height / 2)
+      const [tx0, ty0] = viewport.convertToViewportPoint(sample.x, sample.y + sample.height)
+      const [tx1, ty1] = viewport.convertToViewportPoint(sample.x + sample.width, sample.y)
+      const textBox = {
+        left: Math.min(tx0, tx1),
+        top: Math.min(ty0, ty1),
+        width: Math.abs(tx1 - tx0),
+        height: Math.abs(ty1 - ty0),
+      }
+      const sampled = await samplePageColors(bgUrl, { x: bgX, y: bgY }, textBox)
+      backgroundColor = sampled.background
+      color = sampled.text
     }
     addAnnotation(page.id, {
       id: newId(),
@@ -105,7 +116,7 @@ export function PageView({
       sampleOriginalText: sample.text,
       sampleOriginalWidth: sample.width,
       backgroundColor,
-      color: { r: 0, g: 0, b: 0 },
+      color,
     } as Annotation)
   }
 
