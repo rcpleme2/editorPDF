@@ -3,7 +3,8 @@ import { useEditorStore, type SourceEntry } from '../state/useEditorStore'
 import { getPageTextItems, getPageViewport, renderPageToDataUrl, type PdfViewport } from '../lib/pdfRender'
 import { pdfBoxToScreen, screenBoxToPdf, screenPointToPdf } from '../lib/geometry'
 import { computePageScale } from '../lib/pageScale'
-import { groupIntoParagraphs, findParagraphAt } from '../lib/textLayout'
+import { groupIntoParagraphs, findParagraphAt, type ParagraphBlock } from '../lib/textLayout'
+import { sampleBackgroundColor } from '../lib/sampleBackgroundColor'
 import { AnnotationView } from './AnnotationView'
 import type { Annotation, PageState, SearchMatch, TextItem, ToolId, RGB } from '../types'
 
@@ -80,6 +81,34 @@ export function PageView({
 
   const paragraphs = useMemo(() => groupIntoParagraphs(textItems), [textItems])
 
+  async function createParagraphAnnotation(hit: ParagraphBlock) {
+    const sample = hit.items.reduce((a, b) => (b.width > a.width ? b : a))
+    let backgroundColor = { r: 255, g: 255, b: 255 }
+    if (viewport && bgUrl) {
+      const [sx, sy] = viewport.convertToViewportPoint(hit.x - 4, hit.y + hit.height / 2)
+      backgroundColor = await sampleBackgroundColor(bgUrl, sx, sy)
+    }
+    addAnnotation(page.id, {
+      id: newId(),
+      type: 'paragraph',
+      pageIndex: 0,
+      x: hit.x,
+      y: hit.y,
+      width: hit.width + 4,
+      height: hit.height * 1.2,
+      fontSize: hit.fontSize,
+      text: hit.text,
+      align: hit.align,
+      isReplacement: true,
+      bold: false,
+      italic: false,
+      sampleOriginalText: sample.text,
+      sampleOriginalWidth: sample.width,
+      backgroundColor,
+      color: { r: 0, g: 0, b: 0 },
+    } as Annotation)
+  }
+
   function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (!viewport) return
     onActivate()
@@ -96,24 +125,7 @@ export function PageView({
       const pdfPoint = screenPointToPdf(viewport, localX, localY)
       const hit = findParagraphAt(paragraphs, pdfPoint.x, pdfPoint.y)
       if (hit) {
-        const sample = hit.items.reduce((a, b) => (b.width > a.width ? b : a))
-        addAnnotation(page.id, {
-          id: newId(),
-          type: 'paragraph',
-          pageIndex: 0,
-          x: hit.x,
-          y: hit.y,
-          width: hit.width + 4,
-          height: hit.height * 1.2,
-          fontSize: hit.fontSize,
-          text: hit.text,
-          isReplacement: true,
-          bold: false,
-          italic: false,
-          sampleOriginalText: sample.text,
-          sampleOriginalWidth: sample.width,
-          color: { r: 0, g: 0, b: 0 },
-        } as Annotation)
+        void createParagraphAnnotation(hit)
       } else {
         addAnnotation(page.id, {
           id: newId(),

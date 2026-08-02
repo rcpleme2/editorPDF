@@ -1,7 +1,7 @@
-import { PDFDocument, rgb, StandardFonts, degrees, type PDFFont } from 'pdf-lib'
+import { PDFDocument, rgb, StandardFonts, degrees, type PDFFont, type PDFPage } from 'pdf-lib'
 import fontkit from '@pdf-lib/fontkit'
 import { applyFormValues } from './pdfForms'
-import { resolveParagraphFont } from './resolveParagraphFont'
+import { resolveParagraphFont, standardFontFor } from './resolveParagraphFont'
 import { wrapText } from './textWrap'
 import type { Annotation, FormFieldValue, PageState, RGB } from '../types'
 
@@ -60,10 +60,13 @@ interface ParagraphFontContext {
 }
 
 /** Resolves the PDFFont to draw a reflowed paragraph with: tries to reuse
- * the same font embedded in the source PDF (see resolveParagraphFont),
- * embedding it into the output document on first use and reusing that
- * PDFFont instance for every other paragraph on the same font. Falls back
- * to the given Helvetica variant on any failure. */
+ * the same font embedded in the source PDF, or — for the very common case
+ * of non-embedded standard fonts (Times/Courier/Helvetica-family) —
+ * embeds the matching pdf-lib StandardFont instead of always defaulting to
+ * Helvetica (see resolveParagraphFont / pdfFontExtract's classification).
+ * Embeds into the output document on first use and reuses that PDFFont
+ * instance for every other paragraph using the same font. Falls back to
+ * the given Helvetica variant only if resolution throws outright. */
 async function resolveExportFont(
   ann: Extract<Annotation, { type: 'paragraph' }>,
   ctx: ParagraphFontContext,
@@ -82,14 +85,55 @@ async function resolveExportFont(
     const key = `${ctx.cacheKey}:${ctx.sourcePageIndex}:${resolved.resourceName}`
     let embedded = ctx.fontCache.get(key)
     if (!embedded) {
-      ctx.outDoc.registerFontkit(fontkit)
-      embedded = await ctx.outDoc.embedFont(resolved.bytes)
+      if (resolved.kind === 'embedded') {
+        ctx.outDoc.registerFontkit(fontkit)
+        embedded = await ctx.outDoc.embedFont(resolved.bytes)
+      } else {
+        embedded = await ctx.outDoc.embedFont(standardFontFor(resolved.family, resolved.bold, resolved.italic))
+      }
       ctx.fontCache.set(key, embedded)
     }
     return embedded
   } catch {
     return fallback
   }
+}
+
+/** Draws one wrapped line of a reflowed paragraph, honoring the detected
+ * alignment. Justify distributes extra space evenly between words — except
+ * on the last line of the paragraph, which is left-aligned per standard
+ * typographic convention (and when a line is a single word, which can't be
+ * stretched meaningfully). */
+function drawParagraphLine(
+  page: PDFPage,
+  line: string,
+  boxX: number,
+  boxWidth: number,
+  y: number,
+  font: PDFFont,
+  fontSize: number,
+  color: ReturnType<typeof toColor>,
+  align: Extract<Annotation, { type: 'paragraph' }>['align'],
+  isLastLine: boolean,
+) {
+  if (align === 'justify' && !isLastLine) {
+    const words = line.split(' ').filter(Boolean)
+    if (words.length > 1) {
+      const wordsWidth = words.reduce((sum, w) => sum + font.widthOfTextAtSize(w, fontSize), 0)
+      const gap = (boxWidth - wordsWidth) / (words.length - 1)
+      let x = boxX
+      for (const word of words) {
+        page.drawText(word, { x, y, size: fontSize, font, color })
+        x += font.widthOfTextAtSize(word, fontSize) + gap
+      }
+      return
+    }
+  }
+  const lineWidth = font.widthOfTextAtSize(line, fontSize)
+  let x = boxX
+  if (align === 'right') x = boxX + (boxWidth - lineWidth)
+  else if (align === 'center') x = boxX + (boxWidth - lineWidth) / 2
+  page.drawText(line, { x, y, size: fontSize, font, color })
 }
 
 /** Draws one annotation onto a pdf-lib page. All annotation coordinates are
@@ -280,20 +324,26 @@ async function drawAnnotation(
         y: ann.y,
         width: ann.width,
         height: ann.height,
-        color: rgb(1, 1, 1),
+        color: toColor(ann.backgroundColor),
       })
       const font = await resolveExportFont(ann, fontCtx, ann.bold ? helvBold : helv)
       const lines = wrapText(ann.text, (s) => font.widthOfTextAtSize(s, ann.fontSize), ann.width)
       const lineHeight = ann.fontSize * 1.2
       const topY = ann.y + ann.height
+      const color = toColor(ann.color)
       lines.forEach((line, i) => {
-        page.drawText(line, {
-          x: ann.x,
-          y: topY - lineHeight * (i + 1) + (lineHeight - ann.fontSize) / 2,
-          size: ann.fontSize,
+        drawParagraphLine(
+          page,
+          line,
+          ann.x,
+          ann.width,
+          topY - lineHeight * (i + 1) + (lineHeight - ann.fontSize) / 2,
           font,
-          color: toColor(ann.color),
-        })
+          ann.fontSize,
+          color,
+          ann.align,
+          i === lines.length - 1,
+        )
       })
       break
     }

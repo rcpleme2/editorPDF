@@ -90,17 +90,24 @@ export interface ParagraphAnnotation extends AnnotationBase {
   fontSize: number
   bold: boolean
   italic: boolean
+  align: 'left' | 'center' | 'right' | 'justify'
   /** always true — a paragraph annotation always covers/replaces original PDF text */
   isReplacement: true
   /**
    * One representative original text run from this paragraph (text + its
-   * measured width in the source PDF), kept so the same embedded font in
-   * the source document can be re-resolved deterministically later (both
-   * for on-screen wrapping and at export) without storing the font's raw
-   * bytes in app state/undo history.
+   * measured width in the source PDF), kept so the same font in the source
+   * document can be re-resolved deterministically later (both for
+   * on-screen wrapping and at export) without storing the font's raw bytes
+   * in app state/undo history.
    */
   sampleOriginalText: string
   sampleOriginalWidth: number
+  /**
+   * Page background color sampled once at the paragraph's location when it
+   * was created, so the covering rectangle blends with the actual page
+   * (which is rarely pure white) instead of leaving a visible white patch.
+   */
+  backgroundColor: RGB
 }
 
 export type Annotation =

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PDFDocument } from 'pdf-lib'
 import type { PdfViewport } from '../lib/pdfRender'
 import { pdfBoxToScreen, screenPointToPdf } from '../lib/geometry'
-import { resolveParagraphFont } from '../lib/resolveParagraphFont'
+import { resolveParagraphFont, cssFamilyFor } from '../lib/resolveParagraphFont'
 import { wrapText } from '../lib/textWrap'
 import { useEditorStore } from '../state/useEditorStore'
 import type { Annotation, ParagraphAnnotation } from '../types'
@@ -26,10 +26,13 @@ async function ensureFontFace(bytes: Uint8Array, familyCacheKey: string): Promis
   return family
 }
 
-/** Resolves (once) which embedded source-PDF font this paragraph should
- * use, and loads it as a real web font via FontFace so on-screen wrapping
- * and rendering match the exported PDF. Falls back to Helvetica/Arial —
- * both here and at export — when nothing extractable matches. */
+/** Resolves (once) which font this paragraph should use on screen: the
+ * same embedded font as the source PDF (loaded as a real web font via
+ * FontFace, so wrapping matches exactly), or — for the very common case of
+ * non-embedded standard fonts — the matching CSS family (serif/monospace/
+ * sans) so a Times or Courier document doesn't visually turn into
+ * Helvetica. Only falls back to a generic sans-serif stack if resolution
+ * fails outright. */
 function useParagraphFontFamily(
   sourceDoc: PDFDocument,
   sourcePageIndex: number,
@@ -37,18 +40,21 @@ function useParagraphFontFamily(
   sampleText: string,
   sampleWidth: number,
   fontSize: number,
-): string | null {
-  const [fontFamily, setFontFamily] = useState<string | null>(null)
+): string {
+  const [cssFamily, setCssFamily] = useState('Helvetica, Arial, sans-serif')
 
   useEffect(() => {
     let cancelled = false
-    setFontFamily(null)
     resolveParagraphFont(sourceDoc, sourcePageIndex, cacheKey, sampleText, sampleWidth, fontSize)
       .then(async (resolved) => {
         if (!resolved || cancelled) return
+        if (resolved.kind === 'standard') {
+          setCssFamily(cssFamilyFor(resolved.family))
+          return
+        }
         const familyKey = `${cacheKey}:${sourcePageIndex}:${resolved.resourceName}`
         const family = await ensureFontFace(resolved.bytes, familyKey)
-        if (!cancelled) setFontFamily(family)
+        if (!cancelled) setCssFamily(`"${family}", Helvetica, Arial, sans-serif`)
       })
       .catch(() => {
         // Keep the Helvetica/Arial fallback.
@@ -58,7 +64,7 @@ function useParagraphFontFamily(
     }
   }, [sourceDoc, sourcePageIndex, cacheKey, sampleText, sampleWidth, fontSize])
 
-  return fontFamily
+  return cssFamily
 }
 
 export function ParagraphAnnotationView({
@@ -89,7 +95,7 @@ export function ParagraphAnnotationView({
   const selected = selectedId === ann.id
   const box = pdfBoxToScreen(viewport, ann.x, ann.y, ann.width, ann.height)
 
-  const fontFamily = useParagraphFontFamily(
+  const cssFontFamily = useParagraphFontFamily(
     sourceDoc,
     sourcePageIndex,
     cacheKey,
@@ -97,7 +103,6 @@ export function ParagraphAnnotationView({
     ann.sampleOriginalWidth,
     ann.fontSize,
   )
-  const cssFontFamily = fontFamily ? `"${fontFamily}", Helvetica, Arial, sans-serif` : 'Helvetica, Arial, sans-serif'
   const cssFontSize = ann.fontSize * viewport.scale || 12
 
   const measure = useMemo(() => {
@@ -111,12 +116,17 @@ export function ParagraphAnnotationView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cssFontFamily, cssFontSize, ann.bold, ann.italic])
 
-  const wrappedLines = useMemo(() => wrapText(ann.text, measure, box.width), [ann.text, measure, box.width])
+  // Used only to size the box (line count) — actual visual line breaks for
+  // display are left to the browser's native wrapping (see textStyle
+  // below), which handles justify/center/right correctly without fighting
+  // manually-inserted line breaks.
+  function countWrappedLines(text: string) {
+    return Math.max(1, wrapText(text, measure, box.width).length)
+  }
 
   function handleTextChange(newText: string) {
-    const lines = wrapText(newText, measure, box.width)
     const lineHeightPx = cssFontSize * 1.2
-    const newHeightPx = Math.max(cssFontSize * 1.4, lines.length * lineHeightPx)
+    const newHeightPx = Math.max(cssFontSize * 1.4, countWrappedLines(newText) * lineHeightPx)
     updateAnnotation(pageId, ann.id, { text: newText, height: newHeightPx / viewport.scale } as Partial<Annotation>)
   }
 
@@ -157,10 +167,24 @@ export function ParagraphAnnotationView({
     removeAnnotation(pageId, ann.id)
   }
 
+  const textStyle: React.CSSProperties = {
+    fontSize: cssFontSize,
+    fontFamily: cssFontFamily,
+    color: colorToCss(ann.color),
+    fontWeight: ann.bold ? 'bold' : 'normal',
+    fontStyle: ann.italic ? 'italic' : 'normal',
+    textAlign: ann.align === 'justify' ? 'justify' : ann.align,
+    // Justify shouldn't stretch the last visual line to fill the width.
+    ...(ann.align === 'justify' ? { textAlignLast: 'left' as const } : {}),
+    // Let the sampled page-background color on the parent show through
+    // instead of .ann-textarea's semi-opaque white.
+    background: 'transparent',
+  }
+
   return (
     <div
       className={`ann-box ann-text ${selected ? 'selected' : ''}`}
-      style={{ left: box.left, top: box.top, width: box.width, height: box.height, background: 'white' }}
+      style={{ left: box.left, top: box.top, width: box.width, height: box.height, background: colorToCss(ann.backgroundColor) }}
       onPointerDown={(e) => {
         if (!editing) beginDrag(e, 'move')
       }}
@@ -174,31 +198,14 @@ export function ParagraphAnnotationView({
         <textarea
           autoFocus
           className="ann-textarea"
-          style={{
-            fontSize: cssFontSize,
-            fontFamily: cssFontFamily,
-            color: colorToCss(ann.color),
-            fontWeight: ann.bold ? 'bold' : 'normal',
-            fontStyle: ann.italic ? 'italic' : 'normal',
-          }}
+          style={textStyle}
           value={ann.text}
           onChange={(e) => handleTextChange(e.target.value)}
           onBlur={() => setEditing(false)}
         />
       ) : (
-        <div
-          className="ann-text-display"
-          style={{
-            fontSize: cssFontSize,
-            fontFamily: cssFontFamily,
-            color: colorToCss(ann.color),
-            fontWeight: ann.bold ? 'bold' : 'normal',
-            fontStyle: ann.italic ? 'italic' : 'normal',
-          }}
-        >
-          {ann.text
-            ? wrappedLines.map((line, i) => <div key={i}>{line || ' '}</div>)
-            : <span className="placeholder">Digite o texto…</span>}
+        <div className="ann-text-display ann-paragraph-display" style={textStyle}>
+          {ann.text || <span className="placeholder">Digite o texto…</span>}
         </div>
       )}
       {selected && interactive && (
