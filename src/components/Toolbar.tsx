@@ -75,7 +75,12 @@ export function Toolbar() {
   async function handleExport() {
     setBusy('export')
     try {
-      const bytes = await exportPdf(sources.map((e) => e.source), pages, formValues)
+      const bytes = await exportPdf(
+        sources.map((e) => e.source),
+        pages,
+        formValues,
+        sources.map((e) => e.renderDoc),
+      )
       downloadBytes(bytes, 'documento-editado.pdf', 'application/pdf')
     } finally {
       setBusy(null)
@@ -86,7 +91,12 @@ export function Toolbar() {
     setBusy('compress')
     setCompressInfo(null)
     try {
-      const original = await exportPdf(sources.map((e) => e.source), pages, formValues)
+      const original = await exportPdf(
+        sources.map((e) => e.source),
+        pages,
+        formValues,
+        sources.map((e) => e.renderDoc),
+      )
       const doc = await PDFDocument.load(original)
       const { imagesProcessed } = await compressPdfImages(doc)
       let finalBytes = await doc.save()

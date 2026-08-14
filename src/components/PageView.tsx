@@ -5,6 +5,8 @@ import { pdfBoxToScreen, screenBoxToPdf, screenPointToPdf } from '../lib/geometr
 import { computePageScale } from '../lib/pageScale'
 import { groupIntoParagraphs, findParagraphAt, type ParagraphBlock } from '../lib/textLayout'
 import { samplePageColors } from '../lib/sampleBackgroundColor'
+import { getCascadeBands } from '../lib/reflowCascade'
+import { compositeCascadeBackground } from '../lib/compositeCascadeBackground'
 import { AnnotationView } from './AnnotationView'
 import type { Annotation, PageState, SearchMatch, TextItem, ToolId, RGB } from '../types'
 
@@ -52,6 +54,7 @@ export function PageView({
 
   const [viewport, setViewport] = useState<PdfViewport | null>(null)
   const [bgUrl, setBgUrl] = useState<string | null>(null)
+  const [shiftedBgUrl, setShiftedBgUrl] = useState<string | null>(null)
   const [textItems, setTextItems] = useState<TextItem[]>([])
   const [draft, setDraft] = useState<{ type: string; left: number; top: number; width: number; height: number } | null>(null)
   const [freehandPoints, setFreehandPoints] = useState<{ x: number; y: number }[] | null>(null)
@@ -80,6 +83,25 @@ export function PageView({
   }, [entry, page.sourcePageIndex, page.rotation, scale])
 
   const paragraphs = useMemo(() => groupIntoParagraphs(textItems), [textItems])
+  const bands = useMemo(() => getCascadeBands(page.annotations), [page.annotations])
+
+  useEffect(() => {
+    if (!bgUrl || !viewport) {
+      setShiftedBgUrl(null)
+      return
+    }
+    if (bands.length === 0) {
+      setShiftedBgUrl(bgUrl)
+      return
+    }
+    let cancelled = false
+    compositeCascadeBackground(bgUrl, viewport, page.width, page.height, bands).then((url) => {
+      if (!cancelled) setShiftedBgUrl(url)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [bgUrl, viewport, page.width, page.height, bands])
 
   async function createParagraphAnnotation(hit: ParagraphBlock) {
     const sample = hit.items.reduce((a, b) => (b.width > a.width ? b : a))
@@ -107,6 +129,8 @@ export function PageView({
       y: hit.y,
       width: hit.width + 4,
       height: hit.height * 1.2,
+      originalY: hit.y,
+      originalHeight: hit.height * 1.2,
       fontSize: hit.fontSize,
       text: hit.text,
       align: hit.align,
@@ -382,7 +406,9 @@ export function PageView({
           }
           onPointerDown={handlePointerDown}
         >
-          {bgUrl && <img src={bgUrl} className="page-canvas-bg" alt="Página" draggable={false} />}
+          {(shiftedBgUrl ?? bgUrl) && (
+            <img src={shiftedBgUrl ?? bgUrl!} className="page-canvas-bg" alt="Página" draggable={false} />
+          )}
           <svg width="0" height="0">
             <defs>
               <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
@@ -401,6 +427,7 @@ export function PageView({
                 sourceDoc={entry.source.doc}
                 sourcePageIndex={page.sourcePageIndex}
                 cacheKey={entry.source.id}
+                bands={bands}
               />
             ))}
           {viewport &&
