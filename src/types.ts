@@ -108,6 +108,18 @@ export interface ParagraphAnnotation extends AnnotationBase {
    * (which is rarely pure white) instead of leaving a visible white patch.
    */
   backgroundColor: RGB
+  /**
+   * Immutable footprint of this paragraph in the *original*, unedited page
+   * — captured once at creation. `y`/`height` above are live and change as
+   * the user types (the box grows/shrinks, top-anchored: `y + height`
+   * always equals `originalY + originalHeight`). The gap between the two —
+   * `height - originalHeight` — is how far every page element positioned
+   * below `originalY` (other annotations, and the rendered background
+   * image) gets cascaded down/up, turning this from a single floating
+   * overlay into an in-page reflow.
+   */
+  originalY: number
+  originalHeight: number
 }
 
 export type Annotation =

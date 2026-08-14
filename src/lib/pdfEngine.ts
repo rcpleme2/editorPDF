@@ -3,6 +3,9 @@ import fontkit from '@pdf-lib/fontkit'
 import { applyFormValues } from './pdfForms'
 import { resolveParagraphFont, standardFontFor } from './resolveParagraphFont'
 import { wrapText } from './textWrap'
+import { getCascadeBands, shiftForAnnotation, type CascadeBand } from './reflowCascade'
+import { compositeCascadeBackground } from './compositeCascadeBackground'
+import { getPageViewport, renderPageToDataUrl, type PdfDocProxy } from './pdfRender'
 import type { Annotation, FormFieldValue, PageState, RGB } from '../types'
 
 export interface LoadedSource {
@@ -134,6 +137,24 @@ function drawParagraphLine(
   if (align === 'right') x = boxX + (boxWidth - lineWidth)
   else if (align === 'center') x = boxX + (boxWidth - lineWidth) / 2
   page.drawText(line, { x, y, size: fontSize, font, color })
+}
+
+/** Returns a shallow copy of an annotation with its y (and y2, for
+ * line/arrow) shifted by the cascade amount that applies at its position —
+ * the export-time equivalent of AnnotationView's on-screen shiftY, so
+ * content below an edited paragraph moves down in the exported file too. */
+function shiftAnnotationY(ann: Annotation, bands: CascadeBand[]): Annotation {
+  const dy = shiftForAnnotation(ann, bands)
+  if (dy === 0) return ann
+  if (ann.type === 'line' || ann.type === 'arrow') {
+    return { ...ann, y: ann.y + dy, y2: ann.y2 + dy }
+  }
+  return { ...ann, y: ann.y + dy }
+}
+
+async function dataUrlToBytes(dataUrl: string): Promise<Uint8Array> {
+  const res = await fetch(dataUrl)
+  return new Uint8Array(await res.arrayBuffer())
 }
 
 /** Draws one annotation onto a pdf-lib page. All annotation coordinates are
@@ -357,6 +378,10 @@ export async function exportPdf(
   sources: LoadedSource[],
   pages: PageState[],
   formValues?: Record<number, Record<string, FormFieldValue>>,
+  // pdf.js document proxies, parallel to `sources` — only needed for pages
+  // that contain cascade-reflowed paragraphs, to rasterize a shifted
+  // background (see the cascade-bands branch below).
+  renderDocs?: (PdfDocProxy | undefined)[],
 ): Promise<Uint8Array> {
   const out = await PDFDocument.create()
   const helv = await out.embedFont(StandardFonts.Helvetica)
@@ -387,12 +412,36 @@ export async function exportPdf(
 
   for (const p of pages) {
     const sourceDoc = await getDocForExport(p.sourceDocIndex)
-    const [copied] = await out.copyPages(sourceDoc, [p.sourcePageIndex])
-    out.addPage(copied)
+    const bands = getCascadeBands(p.annotations)
+    const renderDoc = renderDocs?.[p.sourceDocIndex]
 
-    if (p.rotation) copied.setRotation(degrees(p.rotation))
+    let targetPage: PDFPage
+    if (bands.length > 0 && renderDoc) {
+      // At least one paragraph on this page was edited and changed size —
+      // vector-copying the original page content would leave everything
+      // below it visually unmoved. Instead, rasterize the original page
+      // (unrotated, so it lines up with annotation coordinates), redraw it
+      // in cascade-shifted bands the same way the on-screen preview does,
+      // and use that as the new page's content. Trade-off: non-edited
+      // content on this page loses text-selectability/vector fidelity in
+      // the exported file.
+      const scale = 2
+      const viewport = await getPageViewport(renderDoc, p.sourcePageIndex, scale, 0)
+      const rendered = await renderPageToDataUrl(renderDoc, p.sourcePageIndex, scale, 0)
+      const shiftedDataUrl = await compositeCascadeBackground(rendered.dataUrl, viewport, p.width, p.height, bands)
+      const pngBytes = await dataUrlToBytes(shiftedDataUrl)
+      const img = await out.embedPng(pngBytes)
+      targetPage = out.addPage([p.width, p.height])
+      targetPage.drawImage(img, { x: 0, y: 0, width: p.width, height: p.height })
+    } else {
+      const [copied] = await out.copyPages(sourceDoc, [p.sourcePageIndex])
+      out.addPage(copied)
+      targetPage = copied
+    }
+
+    if (p.rotation) targetPage.setRotation(degrees(p.rotation))
     if (p.cropBox) {
-      copied.setCropBox(p.cropBox.x, p.cropBox.y, p.cropBox.width, p.cropBox.height)
+      targetPage.setCropBox(p.cropBox.x, p.cropBox.y, p.cropBox.width, p.cropBox.height)
     }
 
     const fontCtx: ParagraphFontContext = {
@@ -403,7 +452,7 @@ export async function exportPdf(
       fontCache: paragraphFontCache,
     }
     for (const ann of p.annotations) {
-      await drawAnnotation(copied, ann, helv, helvBold, fontCtx)
+      await drawAnnotation(targetPage, shiftAnnotationY(ann, bands), helv, helvBold, fontCtx)
     }
   }
 

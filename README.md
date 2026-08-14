@@ -78,6 +78,18 @@ src/
 
 Todas as edições ficam em memória no navegador até você clicar em **Baixar PDF** — nada é enviado para fora do seu computador.
 
+## Experimento: reflow em cascata (branch `reflow`)
+
+Esta branch é um protótipo separado que substitui o comportamento padrão de edição de parágrafo (que só cresce a caixa por cima do conteúdo, sem afetar o resto da página) por um **reflow em cascata dentro da página**: ao editar um parágrafo e ele crescer ou encolher, todo o conteúdo abaixo dele (outras anotações e o próprio fundo renderizado da página) é empurrado para baixo/cima na mesma proporção — como um documento de verdade, mas limitado a uma única página (não cria nem remove páginas; conteúdo que ultrapassa o fim da página fica cortado).
+
+Como funciona:
+- Cada anotação de parágrafo guarda, além da posição/altura atuais (que mudam ao editar), sua posição/altura **originais** (`originalY`/`originalHeight`), capturadas na criação.
+- A cada renderização, `src/lib/reflowCascade.ts` calcula o deslocamento acumulado que cada ponto da página deve sofrer, somando o crescimento/encolhimento de todo parágrafo editado acima dele — nunca altera as coordenadas guardadas, só o desenho.
+- Na tela, o fundo da página (imagem estática do pdf.js) é recomposto em faixas deslocadas (`src/lib/compositeCascadeBackground.ts`) para que o conteúdo original também pareça se mover.
+- Na exportação, páginas sem nenhum parágrafo editado continuam sendo copiadas normalmente (mantendo texto pesquisável/vetorial). Páginas com pelo menos um parágrafo editado são **rasterizadas** (a página original é renderizada em alta resolução, recomposta em faixas deslocadas do mesmo jeito que a pré-visualização, e embutida como imagem de fundo) — as anotações são desenhadas por cima já deslocadas. **Trade-off**: nessas páginas específicas, o conteúdo não editado perde seletibilidade de texto e fidelidade vetorial no PDF final.
+
+Este é um experimento isolado nesta branch, não integrado à branch principal do app.
+
 ## Limitações conhecidas
 
 - A edição de texto ainda cobre o parágrafo original com um retângulo e desenha o texto reflowed por cima — a cor desse retângulo é amostrada do próprio fundo da página (não é mais branco fixo), então na maioria dos documentos fica visualmente imperceptível até você editar; mas não empurra o conteúdo abaixo dele na página (reflow "de documento" completo, como um processador de texto, exigiria reconstruir o PDF como um layout fluido, o que está fora do escopo desta ferramenta).

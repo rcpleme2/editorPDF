@@ -5,6 +5,7 @@ import { pdfBoxToScreen, screenPointToPdf } from '../lib/geometry'
 import { resolveParagraphFont, cssFamilyFor } from '../lib/resolveParagraphFont'
 import { wrapText } from '../lib/textWrap'
 import { useEditorStore } from '../state/useEditorStore'
+import { shiftForAnnotation, type CascadeBand } from '../lib/reflowCascade'
 import type { Annotation, ParagraphAnnotation } from '../types'
 
 function colorToCss(c: { r: number; g: number; b: number }) {
@@ -75,6 +76,7 @@ export function ParagraphAnnotationView({
   sourceDoc,
   sourcePageIndex,
   cacheKey,
+  bands,
 }: {
   ann: ParagraphAnnotation
   pageId: string
@@ -83,6 +85,7 @@ export function ParagraphAnnotationView({
   sourceDoc: PDFDocument
   sourcePageIndex: number
   cacheKey: string
+  bands: CascadeBand[]
 }) {
   const updateAnnotation = useEditorStore((s) => s.updateAnnotation)
   const removeAnnotation = useEditorStore((s) => s.removeAnnotation)
@@ -93,7 +96,8 @@ export function ParagraphAnnotationView({
   const [editing, setEditing] = useState(false)
 
   const selected = selectedId === ann.id
-  const box = pdfBoxToScreen(viewport, ann.x, ann.y, ann.width, ann.height)
+  const shiftY = shiftForAnnotation(ann, bands)
+  const box = pdfBoxToScreen(viewport, ann.x, ann.y + shiftY, ann.width, ann.height)
 
   const cssFontFamily = useParagraphFontFamily(
     sourceDoc,
@@ -127,7 +131,17 @@ export function ParagraphAnnotationView({
   function handleTextChange(newText: string) {
     const lineHeightPx = cssFontSize * 1.2
     const newHeightPx = Math.max(cssFontSize * 1.4, countWrappedLines(newText) * lineHeightPx)
-    updateAnnotation(pageId, ann.id, { text: newText, height: newHeightPx / viewport.scale } as Partial<Annotation>)
+    const newHeightPdf = newHeightPx / viewport.scale
+    // Top-anchored growth: keep the paragraph's top edge fixed and let it
+    // grow/shrink downward, so the cascade (driven by originalY, the
+    // paragraph's bottom edge) pushes content below it rather than eating
+    // into content above.
+    const top = ann.y + ann.height
+    updateAnnotation(pageId, ann.id, {
+      text: newText,
+      height: newHeightPdf,
+      y: top - newHeightPdf,
+    } as Partial<Annotation>)
   }
 
   function beginDrag(e: React.PointerEvent, mode: 'move' | 'resize') {

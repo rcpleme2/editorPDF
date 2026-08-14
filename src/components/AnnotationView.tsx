@@ -4,6 +4,7 @@ import type { PdfViewport } from '../lib/pdfRender'
 import { pdfBoxToScreen, pdfPointToScreen, screenPointToPdf } from '../lib/geometry'
 import { useEditorStore } from '../state/useEditorStore'
 import { ParagraphAnnotationView } from './ParagraphAnnotationView'
+import { shiftForAnnotation, type CascadeBand } from '../lib/reflowCascade'
 import type { Annotation } from '../types'
 
 function colorToCss(c: { r: number; g: number; b: number }, alpha = 1) {
@@ -18,6 +19,7 @@ export function AnnotationView({
   sourceDoc,
   sourcePageIndex,
   cacheKey,
+  bands,
 }: {
   ann: Annotation
   pageId: string
@@ -26,7 +28,13 @@ export function AnnotationView({
   sourceDoc: PDFDocument
   sourcePageIndex: number
   cacheKey: string
+  bands: CascadeBand[]
 }) {
+  // How far this annotation is pushed down/up (in PDF units) by paragraphs
+  // above it that grew or shrank — the actual "reflow" effect. Applied only
+  // to the rendered position, never to the stored coordinates, so it stays
+  // correct automatically as other paragraphs are edited.
+  const shiftY = shiftForAnnotation(ann, bands)
   const updateAnnotation = useEditorStore((s) => s.updateAnnotation)
   const removeAnnotation = useEditorStore((s) => s.removeAnnotation)
   const selectedId = useEditorStore((s) => s.selectedAnnotationId)
@@ -87,7 +95,7 @@ export function AnnotationView({
 
   const commonBoxStyle = (() => {
     if (ann.type === 'line' || ann.type === 'arrow') return null
-    const box = pdfBoxToScreen(viewport, ann.x, ann.y, ann.width, ann.height)
+    const box = pdfBoxToScreen(viewport, ann.x, ann.y + shiftY, ann.width, ann.height)
     return box
   })()
 
@@ -97,8 +105,8 @@ export function AnnotationView({
   }
 
   if (ann.type === 'line' || ann.type === 'arrow') {
-    const p1 = pdfBoxToScreen(viewport, ann.x, ann.y, 0, 0)
-    const p2 = pdfBoxToScreen(viewport, ann.x2, ann.y2, 0, 0)
+    const p1 = pdfBoxToScreen(viewport, ann.x, ann.y + shiftY, 0, 0)
+    const p2 = pdfBoxToScreen(viewport, ann.x2, ann.y2 + shiftY, 0, 0)
     return (
       <>
         <svg className="ann-line-svg" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'visible' }}>
@@ -151,6 +159,7 @@ export function AnnotationView({
         sourceDoc={sourceDoc}
         sourcePageIndex={sourcePageIndex}
         cacheKey={cacheKey}
+        bands={bands}
       />
     )
   }
